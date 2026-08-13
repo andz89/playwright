@@ -5,7 +5,9 @@
       "Bash(node _verify-screenshot-button.mjs)",
       "Bash(git remote *)",
       "Bash(npx -y npm@11.16.0 --version)",
-      "Bash(npx -y npm@11.16.0 install)"
+      "Bash(npx -y npm@11.16.0 install)",
+      "Bash(git commit *)",
+      "Bash(git push *)"
     ]
   }
 }

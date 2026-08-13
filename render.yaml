@@ -4,7 +4,9 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     plan: starter # headless Chromium is memory-hungry; bump to `standard` (2GB) if you see OOM restarts
-    healthCheckPath: /
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
+      - key: SITE_PASSWORD
+        sync: false # set the actual value in the Render dashboard, not here
