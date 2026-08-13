@@ -45,4 +45,4 @@ CLAUDE.md
 
 # local/unused
 /tessdata
-.claude/settings.local.json
+.claude/
