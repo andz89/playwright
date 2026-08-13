@@ -1,69 +1,206 @@
-import Image from "next/image";
+"use client";
+
+import { useMemo, useRef, useState } from "react";
+import { UrlForm } from "@/components/UrlForm";
+import { ProgressBar } from "@/components/ProgressBar";
+import { RobotsWarning } from "@/components/RobotsWarning";
+import { RedirectNotice } from "@/components/RedirectNotice";
+import { CanonicalLink } from "@/components/CanonicalLink";
+import { ScreenshotsPanel } from "@/components/ScreenshotsPanel";
+import { Gallery } from "@/components/Gallery";
+import { ResultsTable } from "@/components/ResultsTable";
+import { AppScreenshotButton } from "@/components/AppScreenshotButton";
+import { HyvorTalkPanel } from "@/components/HyvorTalkPanel";
+import { useScrape } from "@/lib/useScrape";
+import {
+  DEFAULT_SCRAPE_OPTIONS,
+  isFeaturedImage,
+  type ScrapeOptions,
+} from "@/lib/types";
+
+type ViewMode = "gallery" | "table";
 
 export default function Home() {
+  const { state, run } = useScrape();
+  const [view, setView] = useState<ViewMode>("table");
+  const [featuredView, setFeaturedView] = useState<ViewMode>("table");
+  const [lastUrl, setLastUrl] = useState("");
+  const [lastOptions, setLastOptions] = useState<ScrapeOptions>(
+    DEFAULT_SCRAPE_OPTIONS,
+  );
+  const resultsRef = useRef<HTMLDivElement>(null);
+
+  const isRunning = state.status === "running";
+
+  const featuredImages = useMemo(
+    () => state.images.filter(isFeaturedImage),
+    [state.images],
+  );
+  const pageImages = useMemo(
+    () => state.images.filter((img) => !isFeaturedImage(img)),
+    [state.images],
+  );
+  const handleSubmit = (url: string, options: ScrapeOptions) => {
+    setLastUrl(url);
+    setLastOptions(options);
+    run(url, false, options);
+  };
+  const [url, setUrl] = useState("");
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <div className="min-h-screen bg-zinc-50 dark:bg-black px-4 py-10 sm:px-8">
+      <div className="mx-auto flex max-w-6xl flex-col gap-6">
+        <header className="flex flex-col gap-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Web Scraper</h1>
+          <small className="text-gray-500 text-sm">
+            Developed by Andrew Rivero
+          </small>
+          <p className="text-sm text-black/60 dark:text-white/60">
+            Scrape a single page and browse every details found on it.
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
+        </header>
+        <UrlForm onSubmit={handleSubmit} disabled={isRunning} />
+        {state.status !== "idle" && (
+          <div className="flex items-center gap-3">
+            <AppScreenshotButton
+              url={lastUrl}
+              targetRef={resultsRef}
+              disabled={isRunning}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+          </div>
+        )}
+        <div ref={resultsRef} className="flex flex-col gap-6">
+          {state.robots && (
+            <RobotsWarning
+              allowed={state.robots.allowed}
+              message={state.robots.message}
+              blocked={state.fatalRobotsBlock}
+              onScrapeAnyway={() => run(lastUrl, true, lastOptions)}
+            />
+          )}
+          {!isRunning && state.status !== "idle" && state.statusMessage && (
+            <p className="text-sm    bg-green-100 p-2 text-green-800 rounded border border-green-500">
+              {state.statusMessage}
+            </p>
+          )}
+          {state.redirect && <RedirectNotice info={state.redirect} />}
+          {state.canonical && (
+            <CanonicalLink
+              result={state.canonical}
+              pageUrl={state.redirect?.finalUrl ?? lastUrl}
+            />
+          )}
+          {isRunning && (
+            <ProgressBar
+              message={state.statusMessage}
+              current={state.progress?.current ?? null}
+              total={state.progress?.total ?? null}
+            />
+          )}
+
+          {state.status === "error" &&
+            state.errorMessage &&
+            !state.fatalRobotsBlock && (
+              <p className="rounded-md border border-red-400/50 bg-red-50 dark:bg-red-950/40 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+                {state.errorMessage}
+              </p>
+            )}
+          {state.hyvorTalk && <HyvorTalkPanel result={state.hyvorTalk} />}
+          {state.screenshots && (
+            <ScreenshotsPanel screenshots={state.screenshots} />
+          )}
+          {state.images.length > 0 && (
+            <>
+              {featuredImages.length > 0 && (
+                <section className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <h2 className="text-lg font-semibold tracking-tight">
+                      Featured images
+                      <span className="ml-2 text-sm font-normal text-black/50 dark:text-white/50">
+                        ({featuredImages.length})
+                      </span>
+                    </h2>
+
+                    <div className="flex overflow-hidden rounded-md border border-black/15 dark:border-white/15 text-sm">
+                      <ViewToggleButton
+                        active={featuredView === "gallery"}
+                        onClick={() => setFeaturedView("gallery")}
+                        label="Gallery"
+                      />
+                      <ViewToggleButton
+                        active={featuredView === "table"}
+                        onClick={() => setFeaturedView("table")}
+                        label="Table"
+                      />
+                    </div>
+                  </div>
+
+                  {featuredView === "gallery" ? (
+                    <Gallery images={featuredImages} />
+                  ) : (
+                    <ResultsTable images={featuredImages} />
+                  )}
+                </section>
+              )}
+
+              {pageImages.length > 0 && (
+                <section className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <h2 className="text-lg font-semibold tracking-tight">
+                      Page images
+                      <span className="ml-2 text-sm font-normal text-black/50 dark:text-white/50">
+                        ({pageImages.length})
+                      </span>
+                    </h2>
+
+                    <div className="flex overflow-hidden rounded-md border border-black/15 dark:border-white/15 text-sm">
+                      <ViewToggleButton
+                        active={view === "gallery"}
+                        onClick={() => setView("gallery")}
+                        label="Gallery"
+                      />
+                      <ViewToggleButton
+                        active={view === "table"}
+                        onClick={() => setView("table")}
+                        label="Table"
+                      />
+                    </div>
+                  </div>
+
+                  {view === "gallery" ? (
+                    <Gallery images={pageImages} />
+                  ) : (
+                    <ResultsTable images={pageImages} />
+                  )}
+                </section>
+              )}
+            </>
+          )}
         </div>
-      </main>
+      </div>
     </div>
+  );
+}
+
+function ViewToggleButton({
+  active,
+  onClick,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3 py-1.5 font-medium transition-colors ${
+        active
+          ? "bg-blue-600 text-white"
+          : "bg-white dark:bg-black/20 hover:bg-black/5 dark:hover:bg-white/10"
+      }`}
+    >
+      {label}
+    </button>
   );
 }

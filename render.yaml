@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: automate-task
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter # headless Chromium is memory-hungry; bump to `standard` (2GB) if you see OOM restarts
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
