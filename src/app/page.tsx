@@ -45,7 +45,6 @@ export default function Home() {
     setLastOptions(options);
     run(url, false, options);
   };
-  const [url, setUrl] = useState("");
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-black px-4 py-10 sm:px-8">
