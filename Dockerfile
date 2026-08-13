@@ -5,13 +5,17 @@
 FROM mcr.microsoft.com/playwright:v1.62.1-jammy AS base
 
 WORKDIR /app
-ENV NODE_ENV=production
 
 COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
 RUN npm run build
+
+# Set only after the build: `next build` needs devDependencies (e.g.
+# @tailwindcss/postcss) installed above, which npm skips when NODE_ENV is
+# already "production" during `npm ci`.
+ENV NODE_ENV=production
 
 # Render sets $PORT at runtime; Next.js reads it automatically.
 EXPOSE 3000
