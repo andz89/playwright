@@ -1,4 +1,11 @@
-import { chromium, type Page, type Request, type Response } from "playwright";
+import {
+  chromium,
+  type APIRequestContext,
+  type BrowserContext,
+  type Page,
+  type Request,
+  type Response,
+} from "playwright";
 import { SCRAPER_USER_AGENT } from "./robots";
 import {
   FEATURED_TAGS,
@@ -11,6 +18,7 @@ import {
 } from "./types";
 
 export const MAX_IMAGES = 50;
+export const MAX_LINKS = 100;
 
 export interface DiscoveredImage {
   url: string;
@@ -19,9 +27,28 @@ export interface DiscoveredImage {
   error?: string;
 }
 
+export interface DiscoveredLink {
+  url: string;
+  text: string;
+  /** HTTP status code the link resolved to, or null if it isn't an http(s) link. */
+  status: number | null;
+  /** Set when the link was checked and found broken. */
+  error?: string;
+  /** Set when the link isn't broken but also isn't something that can be verified. */
+  note?: string;
+}
+
 export interface ScrapePageResult {
   images: DiscoveredImage[];
   totalFound: number;
+  /**
+   * Every <a href> found on the page, in document order and with duplicates
+   * kept as-is (the same href appearing twice is two rows, not one) — unlike
+   * images, repeated links are meaningfully distinct occurrences a link
+   * checker needs to account for.
+   */
+  links: DiscoveredLink[];
+  totalLinksFound: number;
   hyvorTalk: HyvorTalkResult;
   /** Set when the requested URL redirected somewhere else before we scraped it. */
   redirect: RedirectInfo | null;
@@ -70,6 +97,31 @@ async function gotoWithRetry(page: Page, url: string): Promise<Response | null> 
     }
   }
   throw lastError;
+}
+
+/**
+ * Scrolls from top to bottom and back in a handful of steps, pausing
+ * briefly between each. Content gated behind an IntersectionObserver or a
+ * scroll listener (lazy-loaded images, nav items a menu component only
+ * mounts once scrolled to, "load more" sections) never appears in the DOM
+ * until something scrolls it into view — a plain `querySelectorAll` right
+ * after load would miss it entirely regardless of shadow-DOM handling.
+ * Best-effort: a page that blocks scripted scrolling or has nothing to
+ * reveal just no-ops through this.
+ */
+async function triggerLazyContent(page: Page): Promise<void> {
+  try {
+    const height = await page.evaluate(() => document.body.scrollHeight);
+    const steps = 6;
+    for (let i = 1; i <= steps; i += 1) {
+      await page.evaluate((y) => window.scrollTo(0, y), Math.round((height * i) / steps));
+      await page.waitForTimeout(250);
+    }
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(250);
+  } catch {
+    // Non-fatal.
+  }
 }
 
 /**
@@ -131,8 +183,11 @@ function buildRedirectInfo(
  * whether it would actually display. Also checks for a Hyvor Talk comments
  * widget (capturing its attributes and a screenshot of just that block),
  * reads the page's canonical URL, and captures full-page screenshots at
- * desktop/tablet/mobile sizes. Each of these collection steps is skippable
- * via `options`, so unchecked categories aren't even fetched/verified.
+ * desktop/tablet/mobile sizes. When `options.links` is set, every `<a href>`
+ * on the page is also collected (duplicates kept, capped at `MAX_LINKS`) and
+ * each is checked for a working HTTP response. Each of these collection
+ * steps is skippable via `options`, so unchecked categories aren't even
+ * fetched/verified.
  */
 export async function scrapePage(
   pageUrl: string,
@@ -181,9 +236,30 @@ export async function scrapePage(
     }
     const redirect = buildRedirectInfo(pageUrl, page.url(), response, laterNavigations);
 
-    const raw = await page.evaluate(
-      ({ featuredImages, pageImages }) => {
+    // Some content (below-the-fold images, nav/menu links, "load more"
+    // sections) only renders once an IntersectionObserver or scroll handler
+    // sees it enter the viewport. Scrolling through the page once before
+    // extracting anything gives that content a chance to mount first.
+    if (options.pageImages || options.links) {
+      await triggerLazyContent(page);
+    }
+
+    const { images: rawImages, links: rawLinks } = await page.evaluate(
+      ({ featuredImages, pageImages, links }) => {
         const found: { url: string; source: string }[] = [];
+        const foundLinks: { url: string; text: string }[] = [];
+
+        // Plain `querySelectorAll` never looks inside a shadow root, so a
+        // link or image rendered by a web component (common in modern
+        // design systems) would silently be invisible to it. This walks the
+        // light DOM plus every (open) shadow root, arbitrarily nested.
+        function queryDeep(root: ParentNode, selector: string): Element[] {
+          const results = Array.from(root.querySelectorAll(selector));
+          root.querySelectorAll("*").forEach((el) => {
+            if (el.shadowRoot) results.push(...queryDeep(el.shadowRoot, selector));
+          });
+          return results;
+        }
 
         if (featuredImages) {
           const featuredSelectors: [string, string, string][] = [
@@ -204,10 +280,11 @@ export async function scrapePage(
         }
 
         if (pageImages) {
-          document.querySelectorAll("img").forEach((img) => {
-            const src = img.currentSrc || img.getAttribute("src") || "";
+          queryDeep(document, "img").forEach((img) => {
+            const el = img as HTMLImageElement;
+            const src = el.currentSrc || el.getAttribute("src") || "";
             if (src) found.push({ url: src, source: "img" });
-            const srcset = img.getAttribute("srcset");
+            const srcset = el.getAttribute("srcset");
             if (srcset) {
               const first = srcset.split(",")[0]?.trim().split(/\s+/)[0];
               if (first) found.push({ url: first, source: "img" });
@@ -219,7 +296,7 @@ export async function scrapePage(
             return match ? match[2] : null;
           };
 
-          document.querySelectorAll<HTMLElement>("*").forEach((el) => {
+          queryDeep(document, "*").forEach((el) => {
             const bg = window.getComputedStyle(el).backgroundImage;
             if (bg && bg !== "none") {
               const url = urlFromCss(bg);
@@ -228,15 +305,28 @@ export async function scrapePage(
           });
         }
 
-        return found;
+        if (links) {
+          queryDeep(document, "a[href]").forEach((a) => {
+            const href = a.getAttribute("href");
+            if (!href) return;
+            const text = (a.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 200);
+            foundLinks.push({ url: href, text });
+          });
+        }
+
+        return { images: found, links: foundLinks };
       },
-      { featuredImages: options.featuredImages, pageImages: options.pageImages },
+      {
+        featuredImages: options.featuredImages,
+        pageImages: options.pageImages,
+        links: options.links,
+      },
     );
 
     const featuredTags: Set<string> = new Set(FEATURED_TAGS);
     const seen = new Set<string>();
     const results: DiscoveredImage[] = [];
-    for (const item of raw) {
+    for (const item of rawImages) {
       let absolute: string;
       try {
         absolute = item.url.startsWith("data:")
@@ -259,6 +349,24 @@ export async function scrapePage(
     const totalFound = results.length;
     const truncated = results.slice(0, MAX_IMAGES);
     await verifyInBrowser(page, truncated);
+
+    // Every href is kept as its own row, duplicates included — the same
+    // link appearing in a nav and a footer are two occurrences a link
+    // checker needs to report on separately, unlike repeated <img> tags.
+    const links: DiscoveredLink[] = [];
+    for (const item of rawLinks) {
+      let absolute: string;
+      try {
+        absolute = new URL(item.url, page.url()).href;
+      } catch {
+        continue;
+      }
+      links.push({ url: absolute, text: item.text, status: null });
+    }
+    const totalLinksFound = links.length;
+    const truncatedLinks = links.slice(0, MAX_LINKS);
+    await checkLinks(truncatedLinks, page);
+
     const hyvorTalk = options.hyvorTalk
       ? await captureHyvorTalk(page)
       : { found: false };
@@ -267,7 +375,16 @@ export async function scrapePage(
     // that depends on the page's original layout/viewport.
     const screenshots = options.screenshots ? await captureScreenshots(page) : null;
 
-    return { images: truncated, totalFound, hyvorTalk, redirect, canonicalUrl, screenshots };
+    return {
+      images: truncated,
+      totalFound,
+      links: truncatedLinks,
+      totalLinksFound,
+      hyvorTalk,
+      redirect,
+      canonicalUrl,
+      screenshots,
+    };
   } finally {
     await browser.close();
   }
@@ -460,5 +577,279 @@ async function verifyInBrowser(page: Page, images: DiscoveredImage[]): Promise<v
     if (failedSet.has(img.url)) {
       img.error = "Image failed to load in the browser";
     }
+  }
+}
+
+const LINK_CHECK_CONCURRENCY = 8;
+const LINK_CHECK_TIMEOUT_MS = 10000;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_RE = /^[+()\d][\d\s().-]{2,}$/;
+
+/**
+ * Checks every discovered link, regardless of scheme, rather than only
+ * checking http(s) links and silently skipping the rest:
+ *
+ * - http(s) links to the *current* page (same origin/path/search, only the
+ *   fragment differs, e.g. `#pricing`) are verified by looking for a
+ *   matching id/name in the already-loaded DOM instead of re-fetching the
+ *   page — a fetch would only prove the page loads, not that the anchor
+ *   target actually exists.
+ * - Other http(s) links get a real network request (see `requestWithFallback`).
+ *   Every unique URL is only requested once and the result applied to every
+ *   matching entry, so duplicate hrefs on the page (kept as separate rows
+ *   for display) don't each trigger their own request. Anything that still
+ *   looks broken afterward is re-verified with an actual browser navigation
+ *   (see `confirmBrokenViaNavigation`) before being reported as broken.
+ * - `mailto:`/`tel:` links are validated by format, since there's no
+ *   network resource to fetch.
+ * - Truly unverifiable hrefs (`javascript:`, `data:`, etc.) are reported
+ *   with an informational `note`, not `error` — they aren't broken, they're
+ *   just not a checkable web address.
+ */
+async function checkLinks(links: DiscoveredLink[], page: Page): Promise<void> {
+  if (links.length === 0) return;
+
+  const currentPage = parseUrl(page.url());
+  const fragmentIds = new Set<string>();
+  const httpUrls = new Set<string>();
+
+  for (const link of links) {
+    const url = parseUrl(link.url);
+    if (!url) {
+      link.error = "Could not parse URL";
+      continue;
+    }
+    if (url.protocol !== "http:" && url.protocol !== "https:") continue;
+    if (currentPage && isSamePageFragment(url, currentPage)) {
+      if (url.hash.slice(1)) fragmentIds.add(url.hash.slice(1));
+    } else {
+      httpUrls.add(link.url);
+    }
+  }
+
+  const fragmentResults =
+    fragmentIds.size > 0
+      ? await checkFragmentsExist(page, Array.from(fragmentIds))
+      : new Map<string, boolean>();
+  const httpResults = await checkHttpUrls(Array.from(httpUrls), page.context().request);
+  await confirmBrokenViaNavigation(httpResults, page.context());
+
+  for (const link of links) {
+    const url = parseUrl(link.url);
+    if (!url) continue;
+
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      if (currentPage && isSamePageFragment(url, currentPage)) {
+        const id = url.hash.slice(1);
+        if (!id) {
+          // href="" or href="#" resolves to "the current page", which is
+          // technically always true and tells the user nothing — this
+          // pattern is almost always a JS-driven button (a click handler
+          // opens a modal, toggles a menu, etc.) rather than a real link,
+          // and whatever it actually does isn't in the page's HTML to check.
+          link.note = "Empty href — likely a JavaScript-driven button, not a real link";
+        } else if (!fragmentResults.get(id)) {
+          link.error = `No element with id="${id}" (or name="${id}") found on the page`;
+        }
+        continue;
+      }
+      const result = httpResults.get(link.url);
+      if (result) {
+        link.status = result.status;
+        link.error = result.error;
+      }
+      continue;
+    }
+
+    if (url.protocol === "mailto:") {
+      const addresses = url.pathname.split(",").map((a) => a.trim()).filter(Boolean);
+      const invalid = addresses.filter((a) => !EMAIL_RE.test(a));
+      link.error =
+        addresses.length === 0
+          ? "mailto: link has no email address"
+          : invalid.length > 0
+            ? `Invalid email address: ${invalid.join(", ")}`
+            : undefined;
+      continue;
+    }
+
+    if (url.protocol === "tel:") {
+      const number = decodeURIComponent(url.pathname);
+      link.error = PHONE_RE.test(number) ? undefined : `Invalid phone number: ${number}`;
+      continue;
+    }
+
+    link.note = `Not a checkable web address (${url.protocol} link)`;
+  }
+}
+
+function parseUrl(value: string): URL | null {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
+function isSamePageFragment(url: URL, currentPage: URL): boolean {
+  return (
+    url.origin === currentPage.origin &&
+    url.pathname === currentPage.pathname &&
+    url.search === currentPage.search
+  );
+}
+
+/** Looks for a matching `id` or `name` attribute in the already-loaded DOM, in one batched call. */
+async function checkFragmentsExist(
+  page: Page,
+  ids: string[],
+): Promise<Map<string, boolean>> {
+  const found = await page.evaluate((ids: string[]) => {
+    return ids.map(
+      (id) =>
+        !!document.getElementById(id) ||
+        !!document.getElementsByName(id).length,
+    );
+  }, ids);
+  return new Map(ids.map((id, i) => [id, found[i]]));
+}
+
+async function checkHttpUrls(
+  urls: string[],
+  request: APIRequestContext,
+): Promise<Map<string, { status: number | null; error?: string }>> {
+  const results = new Map<string, { status: number | null; error?: string }>();
+  if (urls.length === 0) return results;
+
+  let cursor = 0;
+  async function worker() {
+    while (cursor < urls.length) {
+      const url = urls[cursor];
+      cursor += 1;
+      results.set(url, await checkLinkStatus(url, request));
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(LINK_CHECK_CONCURRENCY, urls.length) }, () => worker()),
+  );
+  return results;
+}
+
+const NAV_CONFIRM_CONCURRENCY = 3;
+const MAX_NAV_CONFIRMATIONS = 30;
+
+/**
+ * The HEAD/GET request check above is still not the same request a human
+ * clicking the link would make — it can be wrong for sites whose bot
+ * detection specifically fingerprints non-navigation requests (TLS/HTTP2
+ * handshake, timing, etc.) even when they share the page's cookies and
+ * User-Agent. Rather than trust a "broken" verdict from that check, this
+ * re-opens anything that looked broken as an actual browser navigation
+ * (new tab, same context, so cookies still carry over) — the exact test a
+ * person clicking the link gets — before reporting it broken. Only runs on
+ * the (usually few) links that already look broken, capped at
+ * `MAX_NAV_CONFIRMATIONS`, so a page full of working links isn't slowed
+ * down by this extra pass.
+ */
+async function confirmBrokenViaNavigation(
+  results: Map<string, { status: number | null; error?: string }>,
+  context: BrowserContext,
+): Promise<void> {
+  const broken = Array.from(results.entries())
+    .filter(([, r]) => r.error)
+    .slice(0, MAX_NAV_CONFIRMATIONS);
+  if (broken.length === 0) return;
+
+  let cursor = 0;
+  async function worker() {
+    while (cursor < broken.length) {
+      const [url] = broken[cursor];
+      cursor += 1;
+      results.set(url, await confirmViaNavigation(context, url));
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(NAV_CONFIRM_CONCURRENCY, broken.length) }, () => worker()),
+  );
+}
+
+async function confirmViaNavigation(
+  context: BrowserContext,
+  url: string,
+): Promise<{ status: number | null; error?: string }> {
+  const page = await context.newPage();
+  // A navigation to a URL that triggers a file download (a PDF, a ZIP, an
+  // image served with Content-Disposition: attachment) makes `page.goto`
+  // reject with ERR_ABORTED even though the link is completely fine — the
+  // browser abandoned the *page* navigation in favor of downloading the
+  // resource, which is the correct, working behavior for that link.
+  let downloadDetected = false;
+  page.once("download", () => {
+    downloadDetected = true;
+  });
+  try {
+    const res = await page.goto(url, { waitUntil: "domcontentloaded", timeout: LINK_CHECK_TIMEOUT_MS });
+    if (!res) return { status: null, error: "No response received" };
+    return {
+      status: res.status(),
+      error: res.ok() ? undefined : `${res.status()} ${res.statusText()}`.trim(),
+    };
+  } catch (err) {
+    if (downloadDetected) return { status: null };
+    return {
+      status: null,
+      error: err instanceof Error ? err.message : "Failed to reach URL",
+    };
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
+// Checked through the browser context's own request API — which shares its
+// cookies and User-Agent with the page that already loaded successfully —
+// rather than a bare Node-side `fetch`. Sites behind a WAF/bot-detection
+// (Cloudflare and friends) routinely let the real browser navigation through
+// while resetting or 403-ing an isolated request that doesn't carry the same
+// session/fingerprint, which was producing false "broken" results for links
+// that work fine when actually clicked. Same rationale as why images are
+// verified via the page's own `Image()` rather than a separate fetch.
+async function requestOnce(
+  request: APIRequestContext,
+  url: string,
+  method: "HEAD" | "GET",
+) {
+  return request.fetch(url, { method, timeout: LINK_CHECK_TIMEOUT_MS, failOnStatusCode: false });
+}
+
+// Some servers don't support HEAD at all (405/501); others specifically
+// bot-detect HEAD requests (rarer method, easier tell) while answering GET
+// normally, or just reset the connection. Any non-2xx or thrown HEAD is
+// treated as inconclusive rather than broken, and retried with GET — the
+// method an actual click always uses — before trusting the result.
+async function requestWithFallback(request: APIRequestContext, url: string) {
+  try {
+    const res = await requestOnce(request, url, "HEAD");
+    if (res.ok()) return res;
+    return await requestOnce(request, url, "GET");
+  } catch {
+    return requestOnce(request, url, "GET");
+  }
+}
+
+async function checkLinkStatus(
+  url: string,
+  request: APIRequestContext,
+): Promise<{ status: number | null; error?: string }> {
+  try {
+    const res = await requestWithFallback(request, url);
+    return {
+      status: res.status(),
+      error: res.ok() ? undefined : `${res.status()} ${res.statusText()}`.trim(),
+    };
+  } catch (err) {
+    return {
+      status: null,
+      error: err instanceof Error ? err.message : "Failed to reach URL",
+    };
   }
 }

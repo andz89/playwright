@@ -12,6 +12,7 @@ import {
   type CanonicalResult,
   type HyvorTalkResult,
   type ImageResult,
+  type LinkResult,
   type RedirectInfo,
   type ScrapeEvent,
   type ScrapeOptions,
@@ -27,6 +28,7 @@ export interface ScrapeState {
   canonical: CanonicalResult | null;
   screenshots: ScreenshotSet | null;
   images: ImageResult[];
+  links: LinkResult[];
   hyvorTalk: HyvorTalkResult | null;
   errorMessage: string | null;
   fatalRobotsBlock: boolean;
@@ -41,6 +43,7 @@ const initialState: ScrapeState = {
   canonical: null,
   screenshots: null,
   images: [],
+  links: [],
   hyvorTalk: null,
   errorMessage: null,
   fatalRobotsBlock: false,
@@ -156,18 +159,32 @@ function applyEvent(
     case "image":
       setState((s) => ({ ...s, images: [...s.images, event.result] }));
       break;
+    case "link":
+      setState((s) => ({ ...s, links: [...s.links, event.result] }));
+      break;
     case "hyvorTalk":
       setState((s) => ({ ...s, hyvorTalk: event.result }));
       break;
     case "done":
-      setState((s) => ({
-        ...s,
-        status: "done",
-        statusMessage:
+      setState((s) => {
+        const parts: string[] = [];
+        parts.push(
           event.failedImages > 0
-            ? `Done. Found ${event.totalImages} images, ${event.failedImages} could not be fetched.`
-            : `Complete `,
-      }));
+            ? `Found ${event.totalImages} images, ${event.failedImages} could not be fetched.`
+            : event.totalImages > 0
+              ? `Found ${event.totalImages} images.`
+              : "",
+        );
+        if (event.totalLinks !== undefined) {
+          parts.push(
+            event.brokenLinks && event.brokenLinks > 0
+              ? `Found ${event.totalLinks} links, ${event.brokenLinks} broken.`
+              : `Found ${event.totalLinks} links, all working.`,
+          );
+        }
+        const message = parts.filter(Boolean).join(" ") || "Complete";
+        return { ...s, status: "done", statusMessage: message };
+      });
       break;
     case "error":
       setState((s) => ({

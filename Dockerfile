@@ -10,6 +10,15 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
+
+# Next.js inlines NEXT_PUBLIC_* vars into the client bundle at build time, so
+# they must be passed as build args (Render forwards matching env vars from
+# render.yaml automatically) rather than left as runtime-only env vars.
+ARG NEXT_PUBLIC_SUPABASE_URL
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
+ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
+
 RUN npm run build
 
 # Set only after the build: `next build` needs devDependencies (e.g.

@@ -9,6 +9,7 @@ import { CanonicalLink } from "@/components/CanonicalLink";
 import { ScreenshotsPanel } from "@/components/ScreenshotsPanel";
 import { Gallery } from "@/components/Gallery";
 import { ResultsTable } from "@/components/ResultsTable";
+import { LinksTable } from "@/components/LinksTable";
 import { AppScreenshotButton } from "@/components/AppScreenshotButton";
 import { HyvorTalkPanel } from "@/components/HyvorTalkPanel";
 import { useScrape } from "@/lib/useScrape";
@@ -174,6 +175,17 @@ export default function Home() {
                 </section>
               )}
             </>
+          )}
+          {state.links.length > 0 && (
+            <section className="flex flex-col gap-3">
+              <h2 className="text-lg font-semibold tracking-tight">
+                Links
+                <span className="ml-2 text-sm font-normal text-black/50 dark:text-white/50">
+                  ({state.links.length})
+                </span>
+              </h2>
+              <LinksTable links={state.links} />
+            </section>
           )}
         </div>
       </div>

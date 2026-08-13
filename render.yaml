@@ -8,5 +8,7 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: SITE_PASSWORD
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false # set the actual value in the Render dashboard, not here
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
         sync: false # set the actual value in the Render dashboard, not here

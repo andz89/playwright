@@ -4,6 +4,7 @@ import { scrapePage } from "@/lib/scrape";
 import {
   DEFAULT_SCRAPE_OPTIONS,
   type ImageResult,
+  type LinkResult,
   type ScrapeEvent,
   type ScrapeRequestBody,
 } from "@/lib/types";
@@ -68,6 +69,8 @@ export async function POST(req: NextRequest) {
         const {
           images: discovered,
           totalFound,
+          links: discoveredLinks,
+          totalLinksFound,
           hyvorTalk,
           redirect,
           canonicalUrl,
@@ -87,48 +90,96 @@ export async function POST(req: NextRequest) {
           send({ type: "screenshots", result: screenshots });
         }
 
-        if (discovered.length === 0) {
-          send({ type: "status", message: "No images found on this page." });
-          send({ type: "done", totalImages: 0, failedImages: 0 });
-          return close();
-        }
-
-        if (totalFound > discovered.length) {
-          send({
-            type: "status",
-            message: `Found ${totalFound} images; showing the first ${discovered.length}.`,
-          });
-        } else {
-          send({ type: "status", message: `Found ${discovered.length} images.` });
-        }
-        send({ type: "found", total: discovered.length });
-
         let failedImages = 0;
 
-        for (let i = 0; i < discovered.length; i += 1) {
-          const item = discovered[i];
-          const current = i + 1;
-          send({
-            type: "progress",
-            current,
-            total: discovered.length,
-            message: `Loading image ${current} of ${discovered.length}`,
-          });
-
-          const result: ImageResult = {
-            id: `img-${i}`,
-            src: item.url,
-            source: item.source,
-          };
-          if (item.error) {
-            result.error = item.error;
-            failedImages += 1;
+        if (discovered.length === 0) {
+          send({ type: "status", message: "No images found on this page." });
+        } else {
+          if (totalFound > discovered.length) {
+            send({
+              type: "status",
+              message: `Found ${totalFound} images; showing the first ${discovered.length}.`,
+            });
+          } else {
+            send({ type: "status", message: `Found ${discovered.length} images.` });
           }
+          send({ type: "found", total: discovered.length });
 
-          send({ type: "image", result });
+          for (let i = 0; i < discovered.length; i += 1) {
+            const item = discovered[i];
+            const current = i + 1;
+            send({
+              type: "progress",
+              current,
+              total: discovered.length,
+              message: `Loading image ${current} of ${discovered.length}`,
+            });
+
+            const result: ImageResult = {
+              id: `img-${i}`,
+              src: item.url,
+              source: item.source,
+            };
+            if (item.error) {
+              result.error = item.error;
+              failedImages += 1;
+            }
+
+            send({ type: "image", result });
+          }
         }
 
-        send({ type: "done", totalImages: discovered.length, failedImages });
+        let brokenLinks = 0;
+
+        if (options.links) {
+          if (discoveredLinks.length === 0) {
+            send({ type: "status", message: "No links found on this page." });
+          } else {
+            if (totalLinksFound > discoveredLinks.length) {
+              send({
+                type: "status",
+                message: `Found ${totalLinksFound} links; showing the first ${discoveredLinks.length}.`,
+              });
+            } else {
+              send({ type: "status", message: `Found ${discoveredLinks.length} links.` });
+            }
+
+            for (let i = 0; i < discoveredLinks.length; i += 1) {
+              const item = discoveredLinks[i];
+              const current = i + 1;
+              send({
+                type: "progress",
+                current,
+                total: discoveredLinks.length,
+                message: `Checking link ${current} of ${discoveredLinks.length}`,
+              });
+
+              const result: LinkResult = {
+                id: `link-${i}`,
+                url: item.url,
+                text: item.text,
+                status: item.status,
+              };
+              if (item.error) {
+                result.error = item.error;
+                brokenLinks += 1;
+              }
+              if (item.note) {
+                result.note = item.note;
+              }
+
+              send({ type: "link", result });
+            }
+          }
+        }
+
+        send({
+          type: "done",
+          totalImages: discovered.length,
+          failedImages,
+          totalLinks: options.links ? discoveredLinks.length : undefined,
+          brokenLinks: options.links ? brokenLinks : undefined,
+        });
       } catch (err) {
         send({
           type: "error",

@@ -26,6 +26,20 @@ export interface ImageResult {
   error?: string;
 }
 
+export interface LinkResult {
+  id: string;
+  /** Absolute URL resolved from the anchor's href */
+  url: string;
+  /** The anchor's visible text, if any */
+  text: string;
+  /** HTTP status code the link resolved to, or null if it isn't an http(s) link */
+  status: number | null;
+  /** Set when the link was checked and found broken (bad status, missing anchor target, invalid email/phone) */
+  error?: string;
+  /** Set when the link isn't broken but also isn't something that can be verified (e.g. a javascript: action) */
+  note?: string;
+}
+
 export interface HyvorTalkResult {
   found: boolean;
   /** Attributes read off the widget's root element (website-id, page-id, etc.) */
@@ -71,7 +85,14 @@ export type ScrapeEvent =
   | { type: "progress"; current: number; total: number; message: string }
   | { type: "image"; result: ImageResult }
   | { type: "hyvorTalk"; result: HyvorTalkResult }
-  | { type: "done"; totalImages: number; failedImages: number }
+  | { type: "link"; result: LinkResult }
+  | {
+      type: "done";
+      totalImages: number;
+      failedImages: number;
+      totalLinks?: number;
+      brokenLinks?: number;
+    }
   | { type: "error"; message: string; fatal?: boolean };
 
 export interface ScrapeOptions {
@@ -80,6 +101,7 @@ export interface ScrapeOptions {
   hyvorTalk: boolean;
   canonicalUrl: boolean;
   screenshots: boolean;
+  links: boolean;
 }
 
 export const DEFAULT_SCRAPE_OPTIONS: ScrapeOptions = {
@@ -88,6 +110,7 @@ export const DEFAULT_SCRAPE_OPTIONS: ScrapeOptions = {
   hyvorTalk: true,
   canonicalUrl: true,
   screenshots: true,
+  links: true,
 };
 
 export interface ScrapeRequestBody {
