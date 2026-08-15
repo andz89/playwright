@@ -32,13 +32,26 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full flex flex-col">
         {user && (
-          <div className="flex items-center justify-end gap-3 px-4 py-2 text-sm text-black/60 dark:text-white/60">
-            <span>{user.email}</span>
-            <form action={signOut}>
-              <button type="submit" className="underline hover:text-black dark:hover:text-white">
-                Sign out
-              </button>
-            </form>
+          <div className="flex items-center justify-between gap-3 px-4 py-2 text-sm text-black/60 dark:text-white/60">
+            <div>
+              <p className=" text-lg font-medium uppercase tracking-[0.2em] text-emerald-400">
+                WebScout
+              </p>
+              <small className="text-gray-500 text-sm">
+                Developed by Andrew Rivero
+              </small>
+            </div>
+            <div className="flex flex-col justify-end ">
+              <span>{user.email}</span>
+              <form action={signOut}>
+                <button
+                  type="submit"
+                  className="underline hover:text-black dark:hover:text-white text-right w-full"
+                >
+                  Sign out
+                </button>
+              </form>
+            </div>
           </div>
         )}
         {children}

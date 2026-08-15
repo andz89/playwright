@@ -87,15 +87,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-black px-4 py-10 sm:px-8">
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
-        <header className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Web Scraper</h1>
-          <small className="text-gray-500 text-sm">
-            Developed by Andrew Rivero
-          </small>
-          <p className="text-sm text-black/60 dark:text-white/60">
-            Scrape a single page and browse every details found on it.
-          </p>
-        </header>
+        <header className="flex flex-col gap-1"> </header>
         <UrlForm onSubmit={handleSubmit} disabled={isRunning} />
         {state.status !== "idle" && (
           <div className="flex items-center gap-3">

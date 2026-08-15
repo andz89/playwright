@@ -1,5 +1,5 @@
 import { login } from "./actions";
-
+import WebScout from "../../components/WebScout";
 export default async function LoginPage({
   searchParams,
 }: {
@@ -8,7 +8,8 @@ export default async function LoginPage({
   const { error } = await searchParams;
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-black px-4">
+    <div className="flex min-h-screen items-center flex-col justify-center bg-zinc-50 dark:bg-black px-4">
+      <WebScout />
       <form
         action={login}
         className="flex w-full max-w-sm flex-col gap-4 rounded-lg border border-black/10 dark:border-white/10 p-6"
