@@ -12,8 +12,7 @@ const DEVICES: { key: ScreenshotDevice; label: string }[] = [
 
 export function ScreenshotsPanel({ screenshots }: ScreenshotsPanelProps) {
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-black/10 dark:border-white/10 p-4">
-      <h2 className="text-sm font-semibold">Full-page screenshots</h2>
+    <div className="flex flex-col gap-3">
       {screenshots.error && (
         <p className="text-xs text-amber-700 dark:text-amber-400">
           {screenshots.error}
