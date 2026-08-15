@@ -64,6 +64,38 @@ export interface CanonicalResult {
   url: string | null;
 }
 
+export type SnapshotResourceType = "stylesheet" | "image" | "font" | "video";
+
+export interface FailedSnapshotResource {
+  url: string;
+  type: SnapshotResourceType;
+  /** HTTP status if the request got a response (e.g. 404); absent for network-level failures. */
+  status?: number;
+}
+
+export interface PageSnapshotResult {
+  /**
+   * Serialized outer HTML of the live-rendered page, with a <base> tag
+   * injected so relative stylesheet/image/font URLs resolve against the
+   * original site, and <script> tags stripped. Null if the capture failed.
+   */
+  html: string | null;
+  error?: string;
+  /** Sample of stylesheet/image/font/video resources that failed to load during capture (capped). */
+  failedResources?: FailedSnapshotResource[];
+  /** True total of failed resources — may exceed failedResources.length. */
+  failedResourceCount?: number;
+  /**
+   * Tag/id/class of elements whose Shadow DOM content couldn't be included
+   * in this snapshot (capped) — serializing `outerHTML` never captures what's
+   * inside a shadow root, so those sections render blank/missing even though
+   * nothing failed to fetch.
+   */
+  missingElements?: string[];
+  /** True total of such elements — may exceed missingElements.length. */
+  missingElementCount?: number;
+}
+
 export type ScreenshotDevice = "desktop" | "tablet" | "mobile";
 
 export interface ScreenshotSet {
@@ -81,6 +113,7 @@ export type ScrapeEvent =
   | { type: "redirect"; info: RedirectInfo }
   | { type: "canonical"; result: CanonicalResult }
   | { type: "screenshots"; result: ScreenshotSet }
+  | { type: "pageSnapshot"; result: PageSnapshotResult }
   | { type: "found"; total: number }
   | { type: "progress"; current: number; total: number; message: string }
   | { type: "image"; result: ImageResult }
@@ -102,6 +135,7 @@ export interface ScrapeOptions {
   canonicalUrl: boolean;
   screenshots: boolean;
   links: boolean;
+  pageSnapshot: boolean;
 }
 
 export const DEFAULT_SCRAPE_OPTIONS: ScrapeOptions = {
@@ -111,6 +145,7 @@ export const DEFAULT_SCRAPE_OPTIONS: ScrapeOptions = {
   canonicalUrl: true,
   screenshots: true,
   links: true,
+  pageSnapshot: false,
 };
 
 export interface ScrapeRequestBody {

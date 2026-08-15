@@ -2,15 +2,17 @@
 
 import { useMemo, useState } from "react";
 import type { LinkResult } from "@/lib/types";
-
+import AInote from "./AInote";
+import { RemoveButton } from "./RemoveButton";
 interface LinksTableProps {
   links: LinkResult[];
+  onRemove?: (id: string) => void;
 }
 
 type SortKey = "text" | "url" | "status";
 type SortDir = "asc" | "desc";
 
-export function LinksTable({ links }: LinksTableProps) {
+export function LinksTable({ links, onRemove }: LinksTableProps) {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("url");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -20,7 +22,8 @@ export function LinksTable({ links }: LinksTableProps) {
     if (!q) return links;
     return links.filter(
       (link) =>
-        link.url.toLowerCase().includes(q) || link.text.toLowerCase().includes(q),
+        link.url.toLowerCase().includes(q) ||
+        link.text.toLowerCase().includes(q),
     );
   }, [links, search]);
 
@@ -58,13 +61,25 @@ export function LinksTable({ links }: LinksTableProps) {
         onChange={(e) => setSearch(e.target.value)}
         className="w-full max-w-sm rounded-md border border-black/15 dark:border-white/15 bg-white dark:bg-black/20 px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
       />
-
+      <AInote />
       <div className="overflow-x-auto rounded-md border border-black/10 dark:border-white/10">
         <table className="w-full min-w-[560px] text-left text-sm">
           <thead className="bg-black/[.03] dark:bg-white/[.05] text-xs uppercase tracking-wide text-black/60 dark:text-white/60">
             <tr>
-              <Th label="Text" sortKey="text" active={sortKey} dir={sortDir} onClick={toggleSort} />
-              <Th label="URL" sortKey="url" active={sortKey} dir={sortDir} onClick={toggleSort} />
+              <Th
+                label="Text"
+                sortKey="text"
+                active={sortKey}
+                dir={sortDir}
+                onClick={toggleSort}
+              />
+              <Th
+                label="URL"
+                sortKey="url"
+                active={sortKey}
+                dir={sortDir}
+                onClick={toggleSort}
+              />
               <Th
                 label="Status"
                 sortKey="status"
@@ -72,6 +87,8 @@ export function LinksTable({ links }: LinksTableProps) {
                 dir={sortDir}
                 onClick={toggleSort}
               />
+              <th className="px-3 py-2 font-medium">AI note</th>
+              <th className="px-3 py-2 font-medium">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -82,7 +99,11 @@ export function LinksTable({ links }: LinksTableProps) {
               >
                 <td className="px-3 py-2 max-w-[280px]">
                   <p className="line-clamp-2 text-black/80 dark:text-white/80">
-                    {link.text || <span className="text-black/40 dark:text-white/40">—</span>}
+                    {link.text || (
+                      <span className="text-black/40 dark:text-white/40">
+                        —
+                      </span>
+                    )}
                   </p>
                 </td>
                 <td className="px-3 py-2 max-w-[360px]">
@@ -114,12 +135,20 @@ export function LinksTable({ links }: LinksTableProps) {
                         : (link.status ?? "OK")}
                   </span>
                 </td>
+                <td className="px-3 py-2 whitespace-nowrap">
+                  <AInote />
+                </td>
+                <td className="px-3 py-2 whitespace-nowrap">
+                  {onRemove && (
+                    <RemoveButton onClick={() => onRemove(link.id)} />
+                  )}
+                </td>
               </tr>
             ))}
             {sorted.length === 0 && (
               <tr>
                 <td
-                  colSpan={3}
+                  colSpan={5}
                   className="px-3 py-6 text-center text-black/50 dark:text-white/50"
                 >
                   No results match the current filter.
@@ -154,7 +183,9 @@ function Th({
         className="inline-flex items-center gap-1 hover:text-black dark:hover:text-white"
       >
         {label}
-        <span className="text-[10px]">{isActive ? (dir === "asc" ? "▲" : "▼") : ""}</span>
+        <span className="text-[10px]">
+          {isActive ? (dir === "asc" ? "▲" : "▼") : ""}
+        </span>
       </button>
     </th>
   );

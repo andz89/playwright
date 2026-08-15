@@ -13,9 +13,11 @@ import {
   type HyvorTalkResult,
   type ImageResult,
   type LinkResult,
+  type PageSnapshotResult,
   type RedirectInfo,
   type ScrapeEvent,
   type ScrapeOptions,
+  type ScreenshotDevice,
   type ScreenshotSet,
 } from "./types";
 
@@ -27,6 +29,7 @@ export interface ScrapeState {
   redirect: RedirectInfo | null;
   canonical: CanonicalResult | null;
   screenshots: ScreenshotSet | null;
+  pageSnapshot: PageSnapshotResult | null;
   images: ImageResult[];
   links: LinkResult[];
   hyvorTalk: HyvorTalkResult | null;
@@ -42,6 +45,7 @@ const initialState: ScrapeState = {
   redirect: null,
   canonical: null,
   screenshots: null,
+  pageSnapshot: null,
   images: [],
   links: [],
   hyvorTalk: null,
@@ -120,7 +124,19 @@ export function useScrape() {
 
   const reset = useCallback(() => setState(initialState), []);
 
-  return { state, run, reset };
+  const removeImage = useCallback((id: string) => {
+    setState((s) => ({ ...s, images: s.images.filter((img) => img.id !== id) }));
+  }, []);
+
+  const removeLink = useCallback((id: string) => {
+    setState((s) => ({ ...s, links: s.links.filter((link) => link.id !== id) }));
+  }, []);
+
+  const removeScreenshot = useCallback((device: ScreenshotDevice) => {
+    setState((s) => (s.screenshots ? { ...s, screenshots: { ...s.screenshots, [device]: null } } : s));
+  }, []);
+
+  return { state, run, reset, removeImage, removeLink, removeScreenshot };
 }
 
 function applyEvent(
@@ -145,6 +161,9 @@ function applyEvent(
       break;
     case "screenshots":
       setState((s) => ({ ...s, screenshots: event.result }));
+      break;
+    case "pageSnapshot":
+      setState((s) => ({ ...s, pageSnapshot: event.result }));
       break;
     case "found":
       setState((s) => ({ ...s, progress: { current: 0, total: event.total } }));

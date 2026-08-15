@@ -3,15 +3,18 @@
 import { useMemo, useState } from "react";
 import type { ImageResult } from "@/lib/types";
 import { filenameOf } from "@/lib/filename";
+import AInote from "./AInote";
+import { RemoveButton } from "./RemoveButton";
 
 interface ResultsTableProps {
   images: ImageResult[];
+  onRemove?: (id: string) => void;
 }
 
 type SortKey = "name" | "source" | "status";
 type SortDir = "asc" | "desc";
 
-export function ResultsTable({ images }: ResultsTableProps) {
+export function ResultsTable({ images, onRemove }: ResultsTableProps) {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -56,7 +59,7 @@ export function ResultsTable({ images }: ResultsTableProps) {
         onChange={(e) => setSearch(e.target.value)}
         className="w-full max-w-sm rounded-md border border-black/15 dark:border-white/15 bg-white dark:bg-black/20 px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
       />
-
+      <AInote />
       <div className="overflow-x-auto rounded-md border border-black/10 dark:border-white/10">
         <table className="w-full min-w-[560px] text-left text-sm">
           <thead className="bg-black/[.03] dark:bg-white/[.05] text-xs uppercase tracking-wide text-black/60 dark:text-white/60">
@@ -83,6 +86,8 @@ export function ResultsTable({ images }: ResultsTableProps) {
                 dir={sortDir}
                 onClick={toggleSort}
               />
+              <th className="px-3 py-2 font-medium">AI note</th>
+              <th className="px-3 py-2 font-medium">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -123,12 +128,20 @@ export function ResultsTable({ images }: ResultsTableProps) {
                     {img.error ?? "OK"}
                   </p>
                 </td>
+                <td className="px-3 py-2 whitespace-nowrap">
+                  <AInote />
+                </td>
+                <td className="px-3 py-2 whitespace-nowrap">
+                  {onRemove && (
+                    <RemoveButton onClick={() => onRemove(img.id)} />
+                  )}
+                </td>
               </tr>
             ))}
             {sorted.length === 0 && (
               <tr>
                 <td
-                  colSpan={4}
+                  colSpan={6}
                   className="px-3 py-6 text-center text-black/50 dark:text-white/50"
                 >
                   No results match the current filter.

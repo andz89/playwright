@@ -1,7 +1,10 @@
 import type { ScreenshotDevice, ScreenshotSet } from "@/lib/types";
+import AInote from "./AInote";
+import { RemoveButton } from "./RemoveButton";
 
 interface ScreenshotsPanelProps {
   screenshots: ScreenshotSet;
+  onRemoveDevice?: (device: ScreenshotDevice) => void;
 }
 
 const DEVICES: { key: ScreenshotDevice; label: string }[] = [
@@ -10,7 +13,10 @@ const DEVICES: { key: ScreenshotDevice; label: string }[] = [
   { key: "mobile", label: "Mobile" },
 ];
 
-export function ScreenshotsPanel({ screenshots }: ScreenshotsPanelProps) {
+export function ScreenshotsPanel({
+  screenshots,
+  onRemoveDevice,
+}: ScreenshotsPanelProps) {
   return (
     <div className="flex flex-col gap-3">
       {screenshots.error && (
@@ -19,11 +25,12 @@ export function ScreenshotsPanel({ screenshots }: ScreenshotsPanelProps) {
         </p>
       )}
       <div className="flex flex-col">
+        <AInote />
         {DEVICES.map(({ key, label }) => {
           const src = screenshots[key];
           return (
             <div key={key} className="flex flex-col gap-2 mt-5 items-center">
-              <div className="flex  justify-between p-3 bg-blue-100 border  items-center border-blue-500 rounded w-full ">
+              <div className="flex  justify-between p-3 bg-blue-100 border  items-center border-blue-500 rounded w-full gap-3">
                 <p className="text-md font-medium text-blue-500  w-full">
                   {label}
                 </p>
@@ -31,12 +38,16 @@ export function ScreenshotsPanel({ screenshots }: ScreenshotsPanelProps) {
                   <a
                     href={src}
                     download={`${key}.png`}
-                    className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+                    className="shrink-0 text-xs text-blue-600 hover:underline dark:text-blue-400"
                   >
                     Download
                   </a>
                 )}
+                {src && onRemoveDevice && (
+                  <RemoveButton onClick={() => onRemoveDevice(key)} />
+                )}
               </div>
+              <AInote />
               <div className="overflow-y-auto rounded-md border border-black/10 dark:border-white/10 bg-black/[.02] dark:bg-white/[.03]">
                 {src ? (
                   // eslint-disable-next-line @next/next/no-img-element

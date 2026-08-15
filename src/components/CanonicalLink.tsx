@@ -1,5 +1,5 @@
 import type { CanonicalResult } from "@/lib/types";
-
+import AInote from "./AInote";
 interface CanonicalLinkProps {
   result: CanonicalResult;
   pageUrl: string;
@@ -8,9 +8,16 @@ interface CanonicalLinkProps {
 export function CanonicalLink({ result, pageUrl }: CanonicalLinkProps) {
   if (!result.url) {
     return (
-      <p className="text-xs text-black/50 dark:text-white/50">
-        No canonical link (&lt;link rel=&quot;canonical&quot;&gt;) found on this page.
-      </p>
+      <div
+      id="canonical-link"
+      className="rounded-md border border-black/10 dark:border-white/10 px-4 py-3 text-sm"
+    >
+        <AInote />
+        <p className="text-xs text-black/50 dark:text-white/50">
+          No canonical link (&lt;link rel=&quot;canonical&quot;&gt;) found on
+          this page.
+        </p>
+      </div>
     );
   }
 
@@ -23,7 +30,12 @@ export function CanonicalLink({ result, pageUrl }: CanonicalLinkProps) {
   })();
 
   return (
-    <div className="rounded-md border border-black/10 dark:border-white/10 px-4 py-3 text-sm">
+    <div
+      id="canonical-link"
+      className="rounded-md border border-black/10 dark:border-white/10 px-4 py-3 text-sm"
+    >
+      <AInote />
+
       <p className="font-medium">Source URL</p>
       <a
         href={pageUrl}

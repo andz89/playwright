@@ -7,11 +7,13 @@ import { RobotsWarning } from "@/components/RobotsWarning";
 import { RedirectNotice } from "@/components/RedirectNotice";
 import { CanonicalLink } from "@/components/CanonicalLink";
 import { ScreenshotsPanel } from "@/components/ScreenshotsPanel";
+import { PageSnapshotPanel } from "@/components/PageSnapshotPanel";
 import { Gallery } from "@/components/Gallery";
 import { ResultsTable } from "@/components/ResultsTable";
 import { LinksTable } from "@/components/LinksTable";
 import { AppScreenshotButton } from "@/components/AppScreenshotButton";
 import { HyvorTalkPanel } from "@/components/HyvorTalkPanel";
+import { PromptBuilderPanel } from "@/components/PromptBuilderPanel";
 import { useScrape } from "@/lib/useScrape";
 import {
   DEFAULT_SCRAPE_OPTIONS,
@@ -20,10 +22,11 @@ import {
 } from "@/lib/types";
 
 type ViewMode = "gallery" | "table";
-type SectionKey = "screenshots" | "featured" | "page" | "links";
+type SectionKey = "screenshots" | "snapshot" | "featured" | "page" | "links";
 
 export default function Home() {
-  const { state, run } = useScrape();
+  const { state, run, removeImage, removeLink, removeScreenshot } =
+    useScrape();
   const [view, setView] = useState<ViewMode>("table");
   const [featuredView, setFeaturedView] = useState<ViewMode>("table");
   const [lastUrl, setLastUrl] = useState("");
@@ -32,7 +35,13 @@ export default function Home() {
   );
   const [collapsedSections, setCollapsedSections] = useState<
     Record<SectionKey, boolean>
-  >({ screenshots: true, featured: true, page: true, links: true });
+  >({
+    screenshots: true,
+    snapshot: true,
+    featured: true,
+    page: true,
+    links: true,
+  });
   const resultsRef = useRef<HTMLDivElement>(null);
 
   const isRunning = state.status === "running";
@@ -62,9 +71,10 @@ export default function Home() {
   };
 
   const visibleSectionKeys = (
-    ["screenshots", "featured", "page", "links"] as SectionKey[]
+    ["screenshots", "snapshot", "featured", "page", "links"] as SectionKey[]
   ).filter((key) => {
     if (key === "screenshots") return state.screenshots != null;
+    if (key === "snapshot") return state.pageSnapshot != null;
     if (key === "featured") return featuredImages.length > 0;
     if (key === "page") return pageImages.length > 0;
     return state.links.length > 0;
@@ -89,6 +99,7 @@ export default function Home() {
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
         <header className="flex flex-col gap-1"> </header>
         <UrlForm onSubmit={handleSubmit} disabled={isRunning} />
+        <PromptBuilderPanel />
         {state.status !== "idle" && (
           <div className="flex items-center gap-3">
             <AppScreenshotButton
@@ -147,29 +158,46 @@ export default function Home() {
           )}
           {state.links.length > 0 && (
             <CollapsibleSection
+              id="links"
               title="Links"
               count={state.links.length}
               collapsed={collapsedSections.links}
               onToggle={() => toggleSection("links")}
             >
-              <LinksTable links={state.links} />
+              <LinksTable links={state.links} onRemove={removeLink} />
             </CollapsibleSection>
           )}
 
           {state.screenshots && (
             <CollapsibleSection
+              id="screenshots"
               title="Full-page screenshots"
               count={screenshotCount}
               collapsed={collapsedSections.screenshots}
               onToggle={() => toggleSection("screenshots")}
             >
-              <ScreenshotsPanel screenshots={state.screenshots} />
+              <ScreenshotsPanel
+                screenshots={state.screenshots}
+                onRemoveDevice={removeScreenshot}
+              />
+            </CollapsibleSection>
+          )}
+
+          {state.pageSnapshot && (
+            <CollapsibleSection
+              id="page-snapshot"
+              title="Page snapshot"
+              collapsed={collapsedSections.snapshot}
+              onToggle={() => toggleSection("snapshot")}
+            >
+              <PageSnapshotPanel result={state.pageSnapshot} />
             </CollapsibleSection>
           )}
           {state.images.length > 0 && (
             <>
               {featuredImages.length > 0 && (
                 <CollapsibleSection
+                  id="featured-images"
                   title="Featured images"
                   count={featuredImages.length}
                   collapsed={collapsedSections.featured}
@@ -192,13 +220,17 @@ export default function Home() {
                   {featuredView === "gallery" ? (
                     <Gallery images={featuredImages} />
                   ) : (
-                    <ResultsTable images={featuredImages} />
+                    <ResultsTable
+                      images={featuredImages}
+                      onRemove={removeImage}
+                    />
                   )}
                 </CollapsibleSection>
               )}
 
               {pageImages.length > 0 && (
                 <CollapsibleSection
+                  id="page-images"
                   title="Page images"
                   count={pageImages.length}
                   collapsed={collapsedSections.page}
@@ -221,7 +253,7 @@ export default function Home() {
                   {view === "gallery" ? (
                     <Gallery images={pageImages} />
                   ) : (
-                    <ResultsTable images={pageImages} />
+                    <ResultsTable images={pageImages} onRemove={removeImage} />
                   )}
                 </CollapsibleSection>
               )}
@@ -234,6 +266,7 @@ export default function Home() {
 }
 
 function CollapsibleSection({
+  id,
   title,
   count,
   collapsed,
@@ -241,15 +274,16 @@ function CollapsibleSection({
   actions,
   children,
 }: {
+  id: string;
   title: string;
-  count: number;
+  count?: number;
   collapsed: boolean;
   onToggle: () => void;
   actions?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <section className="flex flex-col gap-3">
+    <section id={id} className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3">
         <button
           onClick={onToggle}
@@ -271,9 +305,11 @@ function CollapsibleSection({
           </svg>
           <h2 className="text-lg font-semibold tracking-tight">
             {title}
-            <span className="ml-2 text-sm font-normal text-black/50 dark:text-white/50">
-              ({count})
-            </span>
+            {count !== undefined && (
+              <span className="ml-2 text-sm font-normal text-black/50 dark:text-white/50">
+                ({count})
+              </span>
+            )}
           </h2>
         </button>
         {!collapsed && actions}

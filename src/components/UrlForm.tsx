@@ -15,6 +15,7 @@ const OPTION_LABELS: { key: keyof ScrapeOptions; label: string }[] = [
   { key: "canonicalUrl", label: "Canonical URL" },
   { key: "screenshots", label: "Full-page screenshots" },
   { key: "links", label: "Check page links (broken/working)" },
+  { key: "pageSnapshot", label: "Page snapshot (HTML/CSS preview)" },
 ];
 
 export function UrlForm({ onSubmit, disabled }: UrlFormProps) {
