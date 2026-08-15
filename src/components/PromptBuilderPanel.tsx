@@ -9,7 +9,20 @@ import {
 } from "@/lib/promptBuilder";
 import { LanguageSelect } from "./LanguageSelect";
 
-export function PromptBuilderPanel() {
+interface PromptBuilderPanelProps {
+  /**
+   * Which PROMPT_FEATURES ids currently have real data on the page (their
+   * DOM `id` actually exists) — a feature the last scrape didn't run, or
+   * that came back empty, has nothing for the AI to find, so its checkbox
+   * is disabled rather than generating an instruction pointing at nothing.
+   * Omit to treat everything as available (e.g. before any scrape has run).
+   */
+  availableFeatures?: Record<string, boolean>;
+}
+
+export function PromptBuilderPanel({
+  availableFeatures,
+}: PromptBuilderPanelProps) {
   const [open, setOpen] = useState(false);
   const [selection, setSelection] = useState<PromptSelection>(() =>
     defaultPromptSelection(),
@@ -59,9 +72,23 @@ export function PromptBuilderPanel() {
 
   const languageMissing = selection.targetLanguage === "";
 
+  const isAvailable = (featureId: string) => availableFeatures?.[featureId] ?? true;
+
   const handleGenerate = () => {
     if (languageMissing) return;
-    setPrompt(buildPrompt(selection));
+    // Belt-and-suspenders: even if `included` was left on from before a
+    // feature became unavailable (e.g. re-scraping without that option),
+    // never generate an instruction pointing at a section that isn't there.
+    const effective: PromptSelection = {
+      ...selection,
+      features: Object.fromEntries(
+        Object.entries(selection.features).map(([id, featureState]) => [
+          id,
+          { ...featureState, included: featureState.included && isAvailable(id) },
+        ]),
+      ),
+    };
+    setPrompt(buildPrompt(effective));
     setCopied(false);
   };
 
@@ -155,15 +182,24 @@ export function PromptBuilderPanel() {
               <div className="flex flex-col gap-3">
                 {PROMPT_FEATURES.map((feature) => {
                   const featureState = selection.features[feature.id];
+                  const available = isAvailable(feature.id);
+                  const included = available && featureState.included;
                   return (
                     <div
                       key={feature.id}
-                      className="rounded-md border border-black/10 dark:border-white/10 p-3"
+                      className={`rounded-md border border-black/10 p-3 dark:border-white/10 ${
+                        available ? "" : "opacity-50"
+                      }`}
                     >
-                      <label className="flex items-center gap-2 text-sm font-medium">
+                      <label
+                        className={`flex items-center gap-2 text-sm font-medium ${
+                          available ? "" : "cursor-not-allowed"
+                        }`}
+                      >
                         <input
                           type="checkbox"
-                          checked={featureState.included}
+                          checked={included}
+                          disabled={!available}
                           onChange={() => toggleFeature(feature.id)}
                           className="accent-blue-600"
                         />
@@ -171,9 +207,14 @@ export function PromptBuilderPanel() {
                         <code className="ml-1 rounded bg-black/5 px-1.5 py-0.5 text-[11px] font-normal text-black/50 dark:bg-white/10 dark:text-white/50">
                           #{feature.sectionId}
                         </code>
+                        {!available && (
+                          <span className="text-xs font-normal italic text-black/40 dark:text-white/40">
+                            not scraped — no data on the page
+                          </span>
+                        )}
                       </label>
 
-                      {featureState.included && (
+                      {included && (
                         <div className="mt-2 flex flex-col gap-1 pl-6">
                           {feature.checks.map((check) => (
                             <label

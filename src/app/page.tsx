@@ -6,11 +6,13 @@ import { ProgressBar } from "@/components/ProgressBar";
 import { RobotsWarning } from "@/components/RobotsWarning";
 import { RedirectNotice } from "@/components/RedirectNotice";
 import { CanonicalLink } from "@/components/CanonicalLink";
+import { MetaPanel } from "@/components/MetaPanel";
 import { ScreenshotsPanel } from "@/components/ScreenshotsPanel";
 import { PageSnapshotPanel } from "@/components/PageSnapshotPanel";
 import { Gallery } from "@/components/Gallery";
 import { ResultsTable } from "@/components/ResultsTable";
 import { LinksTable } from "@/components/LinksTable";
+import { VideosTable } from "@/components/VideosTable";
 import { AppScreenshotButton } from "@/components/AppScreenshotButton";
 import { HyvorTalkPanel } from "@/components/HyvorTalkPanel";
 import { PromptBuilderPanel } from "@/components/PromptBuilderPanel";
@@ -22,11 +24,24 @@ import {
 } from "@/lib/types";
 
 type ViewMode = "gallery" | "table";
-type SectionKey = "screenshots" | "snapshot" | "featured" | "page" | "links";
+type SectionKey =
+  | "screenshots"
+  | "snapshot"
+  | "featured"
+  | "page"
+  | "links"
+  | "videos"
+  | "meta";
 
 export default function Home() {
-  const { state, run, removeImage, removeLink, removeScreenshot } =
-    useScrape();
+  const {
+    state,
+    run,
+    removeImage,
+    removeLink,
+    removeScreenshot,
+    removeVideo,
+  } = useScrape();
   const [view, setView] = useState<ViewMode>("table");
   const [featuredView, setFeaturedView] = useState<ViewMode>("table");
   const [lastUrl, setLastUrl] = useState("");
@@ -41,6 +56,8 @@ export default function Home() {
     featured: true,
     page: true,
     links: true,
+    videos: true,
+    meta: true,
   });
   const resultsRef = useRef<HTMLDivElement>(null);
 
@@ -71,14 +88,49 @@ export default function Home() {
   };
 
   const visibleSectionKeys = (
-    ["screenshots", "snapshot", "featured", "page", "links"] as SectionKey[]
+    [
+      "screenshots",
+      "snapshot",
+      "featured",
+      "page",
+      "links",
+      "videos",
+      "meta",
+    ] as SectionKey[]
   ).filter((key) => {
     if (key === "screenshots") return state.screenshots != null;
     if (key === "snapshot") return state.pageSnapshot != null;
     if (key === "featured") return featuredImages.length > 0;
     if (key === "page") return pageImages.length > 0;
+    if (key === "videos") return state.videos.length > 0;
+    if (key === "meta") return state.meta != null;
     return state.links.length > 0;
   });
+  const promptFeatureAvailability = useMemo<Record<string, boolean>>(
+    () => ({
+      links: state.links.length > 0,
+      videos: state.videos.length > 0,
+      canonical: state.canonical != null,
+      meta: state.meta != null,
+      "featured-images": featuredImages.length > 0,
+      "page-images": pageImages.length > 0,
+      screenshots: state.screenshots != null,
+      widgets: state.hyvorTalk != null,
+      "page-snapshot": state.pageSnapshot != null,
+    }),
+    [
+      state.links,
+      state.videos,
+      state.canonical,
+      state.meta,
+      featuredImages,
+      pageImages,
+      state.screenshots,
+      state.hyvorTalk,
+      state.pageSnapshot,
+    ],
+  );
+
   const allSectionsCollapsed =
     visibleSectionKeys.length > 0 &&
     visibleSectionKeys.every((key) => collapsedSections[key]);
@@ -99,7 +151,7 @@ export default function Home() {
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
         <header className="flex flex-col gap-1"> </header>
         <UrlForm onSubmit={handleSubmit} disabled={isRunning} />
-        <PromptBuilderPanel />
+        <PromptBuilderPanel availableFeatures={promptFeatureAvailability} />
         {state.status !== "idle" && (
           <div className="flex items-center gap-3">
             <AppScreenshotButton
@@ -156,6 +208,17 @@ export default function Home() {
               </button>
             </div>
           )}
+          {state.meta && (
+            <CollapsibleSection
+              id="page-meta"
+              title="Page Title, Description & Meta"
+              collapsed={collapsedSections.meta}
+              onToggle={() => toggleSection("meta")}
+            >
+              <MetaPanel result={state.meta} />
+            </CollapsibleSection>
+          )}
+
           {state.links.length > 0 && (
             <CollapsibleSection
               id="links"
@@ -165,6 +228,18 @@ export default function Home() {
               onToggle={() => toggleSection("links")}
             >
               <LinksTable links={state.links} onRemove={removeLink} />
+            </CollapsibleSection>
+          )}
+
+          {state.videos.length > 0 && (
+            <CollapsibleSection
+              id="videos"
+              title="Videos"
+              count={state.videos.length}
+              collapsed={collapsedSections.videos}
+              onToggle={() => toggleSection("videos")}
+            >
+              <VideosTable videos={state.videos} onRemove={removeVideo} />
             </CollapsibleSection>
           )}
 

@@ -13,12 +13,14 @@ import {
   type HyvorTalkResult,
   type ImageResult,
   type LinkResult,
+  type MetaResult,
   type PageSnapshotResult,
   type RedirectInfo,
   type ScrapeEvent,
   type ScrapeOptions,
   type ScreenshotDevice,
   type ScreenshotSet,
+  type VideoResult,
 } from "./types";
 
 export interface ScrapeState {
@@ -28,10 +30,12 @@ export interface ScrapeState {
   robots: { allowed: boolean; message: string } | null;
   redirect: RedirectInfo | null;
   canonical: CanonicalResult | null;
+  meta: MetaResult | null;
   screenshots: ScreenshotSet | null;
   pageSnapshot: PageSnapshotResult | null;
   images: ImageResult[];
   links: LinkResult[];
+  videos: VideoResult[];
   hyvorTalk: HyvorTalkResult | null;
   errorMessage: string | null;
   fatalRobotsBlock: boolean;
@@ -44,10 +48,12 @@ const initialState: ScrapeState = {
   robots: null,
   redirect: null,
   canonical: null,
+  meta: null,
   screenshots: null,
   pageSnapshot: null,
   images: [],
   links: [],
+  videos: [],
   hyvorTalk: null,
   errorMessage: null,
   fatalRobotsBlock: false,
@@ -136,7 +142,19 @@ export function useScrape() {
     setState((s) => (s.screenshots ? { ...s, screenshots: { ...s.screenshots, [device]: null } } : s));
   }, []);
 
-  return { state, run, reset, removeImage, removeLink, removeScreenshot };
+  const removeVideo = useCallback((id: string) => {
+    setState((s) => ({ ...s, videos: s.videos.filter((video) => video.id !== id) }));
+  }, []);
+
+  return {
+    state,
+    run,
+    reset,
+    removeImage,
+    removeLink,
+    removeScreenshot,
+    removeVideo,
+  };
 }
 
 function applyEvent(
@@ -158,6 +176,9 @@ function applyEvent(
       break;
     case "canonical":
       setState((s) => ({ ...s, canonical: event.result }));
+      break;
+    case "meta":
+      setState((s) => ({ ...s, meta: event.result }));
       break;
     case "screenshots":
       setState((s) => ({ ...s, screenshots: event.result }));
@@ -181,6 +202,9 @@ function applyEvent(
     case "link":
       setState((s) => ({ ...s, links: [...s.links, event.result] }));
       break;
+    case "video":
+      setState((s) => ({ ...s, videos: [...s.videos, event.result] }));
+      break;
     case "hyvorTalk":
       setState((s) => ({ ...s, hyvorTalk: event.result }));
       break;
@@ -199,6 +223,13 @@ function applyEvent(
             event.brokenLinks && event.brokenLinks > 0
               ? `Found ${event.totalLinks} links, ${event.brokenLinks} broken.`
               : `Found ${event.totalLinks} links, all working.`,
+          );
+        }
+        if (event.totalVideos !== undefined) {
+          parts.push(
+            event.brokenVideos && event.brokenVideos > 0
+              ? `Found ${event.totalVideos} videos, ${event.brokenVideos} broken.`
+              : `Found ${event.totalVideos} videos, all working.`,
           );
         }
         const message = parts.filter(Boolean).join(" ") || "Complete";

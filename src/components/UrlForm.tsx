@@ -13,9 +13,11 @@ const OPTION_LABELS: { key: keyof ScrapeOptions; label: string }[] = [
   { key: "pageImages", label: "Page images" },
   { key: "hyvorTalk", label: "Hyvor Talk widget" },
   { key: "canonicalUrl", label: "Canonical URL" },
+  { key: "pageMeta", label: "Title, description, language & meta tags" },
   { key: "screenshots", label: "Full-page screenshots" },
   { key: "links", label: "Check page links (broken/working)" },
   { key: "pageSnapshot", label: "Page snapshot (HTML/CSS preview)" },
+  { key: "videos", label: "Check page videos (status)" },
 ];
 
 export function UrlForm({ onSubmit, disabled }: UrlFormProps) {

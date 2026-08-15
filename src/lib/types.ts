@@ -40,6 +40,20 @@ export interface LinkResult {
   note?: string;
 }
 
+export interface VideoResult {
+  id: string;
+  /** Absolute URL resolved from the <video>/<source> element's src, or an embed iframe's src */
+  url: string;
+  /** HTTP status code the video URL resolved to, or null if not yet checked */
+  status: number | null;
+  /** Set when the video URL was checked and found broken */
+  error?: string;
+  /** Set when the URL isn't broken but also isn't something that can be verified (e.g. a blob: URL, or an embed player where only the iframe itself was checked) */
+  note?: string;
+  /** PNG screenshot of the <video>/embed iframe element itself, as a data: URL — best-effort, absent if it couldn't be captured */
+  screenshot?: string;
+}
+
 export interface HyvorTalkResult {
   found: boolean;
   /** Attributes read off the widget's root element (website-id, page-id, etc.) */
@@ -62,6 +76,22 @@ export interface RedirectInfo {
 export interface CanonicalResult {
   /** Absolute URL from <link rel="canonical">, or null if the page has none */
   url: string | null;
+}
+
+export interface MetaResult {
+  /** document.title, or null if the page has no <title> */
+  title: string | null;
+  /** content of <meta name="description">, or null if absent */
+  description: string | null;
+  /** <html lang="...">, falling back to <meta http-equiv="content-language">; null if neither is set */
+  language: string | null;
+  /**
+   * Every other <meta name="..."|property="..." content="..."> tag on the
+   * page, keyed by its name/property attribute (e.g. "og:title",
+   * "twitter:card", "robots", "viewport"). First occurrence wins on
+   * duplicate keys.
+   */
+  meta: Record<string, string>;
 }
 
 export type SnapshotResourceType = "stylesheet" | "image" | "font" | "video";
@@ -112,6 +142,7 @@ export type ScrapeEvent =
   | { type: "status"; message: string }
   | { type: "redirect"; info: RedirectInfo }
   | { type: "canonical"; result: CanonicalResult }
+  | { type: "meta"; result: MetaResult }
   | { type: "screenshots"; result: ScreenshotSet }
   | { type: "pageSnapshot"; result: PageSnapshotResult }
   | { type: "found"; total: number }
@@ -119,12 +150,15 @@ export type ScrapeEvent =
   | { type: "image"; result: ImageResult }
   | { type: "hyvorTalk"; result: HyvorTalkResult }
   | { type: "link"; result: LinkResult }
+  | { type: "video"; result: VideoResult }
   | {
       type: "done";
       totalImages: number;
       failedImages: number;
       totalLinks?: number;
       brokenLinks?: number;
+      totalVideos?: number;
+      brokenVideos?: number;
     }
   | { type: "error"; message: string; fatal?: boolean };
 
@@ -136,6 +170,8 @@ export interface ScrapeOptions {
   screenshots: boolean;
   links: boolean;
   pageSnapshot: boolean;
+  videos: boolean;
+  pageMeta: boolean;
 }
 
 export const DEFAULT_SCRAPE_OPTIONS: ScrapeOptions = {
@@ -146,6 +182,8 @@ export const DEFAULT_SCRAPE_OPTIONS: ScrapeOptions = {
   screenshots: true,
   links: true,
   pageSnapshot: false,
+  videos: false,
+  pageMeta: true,
 };
 
 export interface ScrapeRequestBody {

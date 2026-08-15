@@ -70,7 +70,7 @@ export function PageSnapshotPanel({ result }: PageSnapshotPanelProps) {
             {summarizeCounts(result.failedResources)} failed to load while
             capturing this page:
           </p>
-          <ul className="mt-1 max-h-40 list-disc overflow-y-auto pl-4">
+          <ul className="mt-1 max-h-40 list-disc overflow-auto pl-4 ">
             {result.failedResources.map((r) => (
               <li key={r.url} className="break-all">
                 <span className="font-medium capitalize">
@@ -106,13 +106,12 @@ export function PageSnapshotPanel({ result }: PageSnapshotPanelProps) {
           <p className="font-medium">
             {result.missingElementCount ?? result.missingElements.length}{" "}
             element
-            {(result.missingElementCount ?? result.missingElements.length) ===
-            1
+            {(result.missingElementCount ?? result.missingElements.length) === 1
               ? ""
               : "s"}{" "}
             use Shadow DOM content that couldn&apos;t be included in this
-            snapshot — those sections will appear empty or missing, even
-            though nothing failed to fetch:
+            snapshot — those sections will appear empty or missing, even though
+            nothing failed to fetch:
           </p>
           <ul className="mt-1 max-h-28 list-disc overflow-y-auto pl-4">
             {result.missingElements.map((el) => (

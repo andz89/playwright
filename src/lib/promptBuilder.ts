@@ -110,6 +110,22 @@ export const PROMPT_FEATURES: PromptFeature[] = [
     ],
   },
   {
+    id: "videos",
+    sectionId: "videos",
+    title: "Videos",
+    itemNoun: "video",
+    noteStyle: "per-item",
+    hasSectionNote: true,
+    checks: [
+      {
+        key: "status",
+        label: "Video status (broken/working)",
+        text: "Report only whether each video URL is reachable/working or broken (status code). This specific check is presence/status only, not a language check.",
+        defaultChecked: true,
+      },
+    ],
+  },
+  {
     id: "canonical",
     sectionId: "canonical-link",
     title: "Source URL & Canonical URL",
@@ -120,6 +136,34 @@ export const PROMPT_FEATURES: PromptFeature[] = [
         key: "differs",
         label: "Canonical differs unexpectedly from Source URL",
         text: "Flag if the Canonical URL differs unexpectedly from the Source URL.",
+        defaultChecked: false,
+      },
+    ],
+  },
+  {
+    id: "meta",
+    sectionId: "page-meta",
+    title: "Page Title, Description & Meta",
+    noteStyle: "shared-single",
+    hasSectionNote: false,
+    checks: [
+      {
+        key: "htmlLang",
+        label: "<html lang> matches the expected language",
+        text: 'Confirm the page\'s <html lang="..."> attribute matches the expected {lang} language code, not "en" or another mismatched code.',
+        defaultChecked: true,
+      },
+      ...standardTextChecks({
+        content: {
+          label: "EN text in title/description",
+          text: "Check the page <title> and meta description for English words or phrases; confirm both are in {lang}.",
+          defaultChecked: true,
+        },
+      }),
+      {
+        key: "otherMeta",
+        label: "Other meta tags (og:*, twitter:*, etc.) in target language",
+        text: "Check any other visible meta content shown (e.g. og:title, og:description, twitter:title, twitter:description) for English words; confirm they're in {lang}.",
         defaultChecked: false,
       },
     ],
@@ -194,9 +238,15 @@ export const PROMPT_FEATURES: PromptFeature[] = [
       {
         key: "status",
         label: "Third-party widget / integration status",
-        text: "Report the status of third-party widgets (e.g. Hyvor Talk) or integration warnings.",
+        text: "Report only whether the Hyvor Talk widget (or other configured third-party integration) is present/active on the page, its properties if shown, and any integration warnings. This specific check is presence/status only, not a language check.",
         defaultChecked: true,
       },
+      ...standardTextChecks({
+        image: {
+          text: "Inspect the widget's screenshot (if captured) for embedded text; confirm it's in {lang}; quote and flag any English or unusual text found.",
+          defaultChecked: true,
+        },
+      }),
     ],
   },
   {
@@ -224,7 +274,7 @@ export const PROMPT_FEATURES: PromptFeature[] = [
           defaultChecked: true,
         },
         content: {
-          text: "Use the Desktop / Tablet / Mobile buttons above the snapshot to switch between all three views, and confirm all visible text in each view is strictly in {lang}; quote and flag any English text or mixed-language strings, noting which viewport it appeared in.",
+          text: "Use the Desktop / Tablet / Mobile buttons above the snapshot to switch between all three views, and confirm all visible text content (not embedded in images/graphics — that's the separate check above) in each view is strictly in {lang}; quote and flag any English text or mixed-language strings, noting which viewport it appeared in.",
           defaultChecked: true,
         },
       }),
@@ -300,6 +350,10 @@ export function buildPrompt(selection: PromptSelection): string {
   lines.push("");
   lines.push(
     'NOTE FIELD RULE — no textarea[name="ai-note"] on the page is ever left blank. Every AI note is a real <textarea name="ai-note"> element already rendered on the page; click into it and type there. If the row/item is perfect — no English text found, no English text on any graphic, nothing else flagged — type exactly "CORRECT" (all caps, nothing else) into it; the field turns green automatically. If anything was flagged, type the observation there instead (what was found, where, why it\'s flagged); the field turns red automatically. A check that ran gets one of these two outcomes typed into its note; a section that is absent from the current tab (its id is not present in the DOM) is skipped entirely — do not invent a note field for it.',
+  );
+  lines.push("");
+  lines.push(
+    'FORMATTING RULE — every note must be easy to scan, not a dense paragraph. A "CORRECT" note is always just that single word. A flagged note with only one finding is a single short line. A flagged note with more than one finding must break each finding onto its own line, numbered (1., 2., 3., ...) in the order they were found — never comma-splice multiple findings into one run-on sentence.',
   );
   lines.push("");
 

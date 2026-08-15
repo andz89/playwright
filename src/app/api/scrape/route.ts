@@ -7,6 +7,7 @@ import {
   type LinkResult,
   type ScrapeEvent,
   type ScrapeRequestBody,
+  type VideoResult,
 } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -71,11 +72,14 @@ export async function POST(req: NextRequest) {
           totalFound,
           links: discoveredLinks,
           totalLinksFound,
+          videos: discoveredVideos,
+          totalVideosFound,
           hyvorTalk,
           redirect,
           canonicalUrl,
           screenshots,
           pageSnapshot,
+          meta,
         } = await scrapePage(targetUrl, options);
 
         if (redirect) {
@@ -86,6 +90,9 @@ export async function POST(req: NextRequest) {
         }
         if (options.canonicalUrl) {
           send({ type: "canonical", result: { url: canonicalUrl } });
+        }
+        if (options.pageMeta && meta) {
+          send({ type: "meta", result: meta });
         }
         if (options.screenshots && screenshots) {
           send({ type: "screenshots", result: screenshots });
@@ -177,12 +184,60 @@ export async function POST(req: NextRequest) {
           }
         }
 
+        let brokenVideos = 0;
+
+        if (options.videos) {
+          if (discoveredVideos.length === 0) {
+            send({ type: "status", message: "No videos found on this page." });
+          } else {
+            if (totalVideosFound > discoveredVideos.length) {
+              send({
+                type: "status",
+                message: `Found ${totalVideosFound} videos; showing the first ${discoveredVideos.length}.`,
+              });
+            } else {
+              send({ type: "status", message: `Found ${discoveredVideos.length} videos.` });
+            }
+
+            for (let i = 0; i < discoveredVideos.length; i += 1) {
+              const item = discoveredVideos[i];
+              const current = i + 1;
+              send({
+                type: "progress",
+                current,
+                total: discoveredVideos.length,
+                message: `Checking video ${current} of ${discoveredVideos.length}`,
+              });
+
+              const result: VideoResult = {
+                id: `video-${i}`,
+                url: item.url,
+                status: item.status,
+              };
+              if (item.error) {
+                result.error = item.error;
+                brokenVideos += 1;
+              }
+              if (item.note) {
+                result.note = item.note;
+              }
+              if (item.screenshot) {
+                result.screenshot = item.screenshot;
+              }
+
+              send({ type: "video", result });
+            }
+          }
+        }
+
         send({
           type: "done",
           totalImages: discovered.length,
           failedImages,
           totalLinks: options.links ? discoveredLinks.length : undefined,
           brokenLinks: options.links ? brokenLinks : undefined,
+          totalVideos: options.videos ? discoveredVideos.length : undefined,
+          brokenVideos: options.videos ? brokenVideos : undefined,
         });
       } catch (err) {
         send({

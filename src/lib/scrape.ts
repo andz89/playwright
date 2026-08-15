@@ -2,6 +2,7 @@ import {
   chromium,
   type APIRequestContext,
   type BrowserContext,
+  type Locator,
   type Page,
   type Request,
   type Response,
@@ -12,6 +13,7 @@ import {
   type FailedSnapshotResource,
   type FeaturedTag,
   type HyvorTalkResult,
+  type MetaResult,
   type PageSnapshotResult,
   type RedirectInfo,
   type ScreenshotDevice,
@@ -22,6 +24,36 @@ import {
 
 export const MAX_IMAGES = 50;
 export const MAX_LINKS = 100;
+export const MAX_VIDEOS = 50;
+
+// Hosts of the common third-party video-embed players. Matched against an
+// iframe's hostname (exact match or subdomain) so an embed can be reported
+// even when its actual video file is unreachable — these players
+// overwhelmingly stream via MediaSource/blob: URLs that were never a plain
+// fetchable file to begin with, so the embed URL's own reachability is the
+// only practically checkable signal.
+const VIDEO_EMBED_HOSTS = [
+  "youtube.com",
+  "youtube-nocookie.com",
+  "youtu.be",
+  "vimeo.com",
+  "player.vimeo.com",
+  "dailymotion.com",
+  "wistia.com",
+  "wistia.net",
+  "jwplatform.com",
+  "brightcove.com",
+  "brightcove.net",
+  "vidyard.com",
+  "loom.com",
+  "facebook.com",
+  "streamable.com",
+];
+
+function isVideoEmbedHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return VIDEO_EMBED_HOSTS.some((embedHost) => host === embedHost || host.endsWith(`.${embedHost}`));
+}
 
 export interface DiscoveredImage {
   url: string;
@@ -41,6 +73,18 @@ export interface DiscoveredLink {
   note?: string;
 }
 
+export interface DiscoveredVideo {
+  url: string;
+  /** HTTP status code the video URL resolved to, or null until checked. */
+  status: number | null;
+  /** Set when the video URL was checked and found broken. */
+  error?: string;
+  /** Set when the URL isn't checkable (blob: URL) or is an embed iframe rather than a direct file. */
+  note?: string;
+  /** PNG screenshot of the <video>/embed iframe element itself, as a data: URL — best-effort, absent if the element couldn't be captured. */
+  screenshot?: string;
+}
+
 export interface ScrapePageResult {
   images: DiscoveredImage[];
   totalFound: number;
@@ -52,6 +96,9 @@ export interface ScrapePageResult {
    */
   links: DiscoveredLink[];
   totalLinksFound: number;
+  /** Every unique <video>/<source> src found on the page, each status-checked like a link. */
+  videos: DiscoveredVideo[];
+  totalVideosFound: number;
   hyvorTalk: HyvorTalkResult;
   /** Set when the requested URL redirected somewhere else before we scraped it. */
   redirect: RedirectInfo | null;
@@ -61,6 +108,8 @@ export interface ScrapePageResult {
   screenshots: ScreenshotSet | null;
   /** Sanitized HTML snapshot of the rendered page, or null if not requested. */
   pageSnapshot: PageSnapshotResult | null;
+  /** Title, description, language, and other meta tags, or null if not requested. */
+  meta: MetaResult | null;
 }
 
 const SCREENSHOT_VIEWPORTS: [ScreenshotDevice, { width: number; height: number }][] = [
@@ -269,6 +318,27 @@ export async function scrapePage(
       page.on("response", onResponse);
     }
 
+    // Modern players (hls.js/dash.js — used by YouTube, Vimeo, Bunny.net,
+    // and most other streaming platforms) feed a <video> element through
+    // MediaSource Extensions rather than setting its src to the real file,
+    // so `currentSrc` ends up a `blob:` handle that only exists in that
+    // browser tab — not a URL anyone else could check. The actual video
+    // *is* still fetched over the network the whole time, as an HLS
+    // (.m3u8) or DASH (.mpd) manifest; tracking those requests here, keyed
+    // by which frame they came from, is the only way to recover a real,
+    // checkable URL for that case.
+    const manifestUrlsByFrame = new Map<string, string[]>();
+    const onManifestRequest = (request: Request) => {
+      if (!/\.(m3u8|mpd)(\?|$)/i.test(request.url())) return;
+      const frameUrl = request.frame().url();
+      const urls = manifestUrlsByFrame.get(frameUrl) ?? [];
+      if (!urls.includes(request.url())) urls.push(request.url());
+      manifestUrlsByFrame.set(frameUrl, urls);
+    };
+    if (options.videos) {
+      page.on("request", onManifestRequest);
+    }
+
     const response = await gotoWithRetry(page, pageUrl);
     // Give JS-rendered pages a chance to finish lazy-loading images (and
     // any post-load JS redirect a chance to fire) before we settle on a
@@ -284,7 +354,7 @@ export async function scrapePage(
     // sections) only renders once an IntersectionObserver or scroll handler
     // sees it enter the viewport. Scrolling through the page once before
     // extracting anything gives that content a chance to mount first.
-    if (options.pageImages || options.links || options.pageSnapshot) {
+    if (options.pageImages || options.links || options.pageSnapshot || options.videos) {
       await triggerLazyContent(page);
     }
     // Stop listening once the real page load is done — later steps
@@ -420,10 +490,21 @@ export async function scrapePage(
     const truncatedLinks = links.slice(0, MAX_LINKS);
     await checkLinks(truncatedLinks, page);
 
+    if (options.videos) {
+      page.off("request", onManifestRequest);
+    }
+    const videos = options.videos
+      ? await discoverVideos(page, manifestUrlsByFrame)
+      : [];
+    const totalVideosFound = videos.length;
+    const truncatedVideos = videos.slice(0, MAX_VIDEOS);
+    await checkVideos(truncatedVideos, page);
+
     const hyvorTalk = options.hyvorTalk
       ? await captureHyvorTalk(page)
       : { found: false };
     const canonicalUrl = options.canonicalUrl ? await captureCanonicalUrl(page) : null;
+    const meta = options.pageMeta ? await captureMeta(page) : null;
     // Captured before screenshots resize the viewport — the DOM/HTML itself
     // doesn't depend on viewport size, so there's no reason to wait.
     const pageSnapshot = options.pageSnapshot
@@ -441,11 +522,14 @@ export async function scrapePage(
       totalFound,
       links: truncatedLinks,
       totalLinksFound,
+      videos: truncatedVideos,
+      totalVideosFound,
       hyvorTalk,
       redirect,
       canonicalUrl,
       screenshots,
       pageSnapshot,
+      meta,
     };
   } finally {
     await browser.close();
@@ -527,6 +611,37 @@ async function captureCanonicalUrl(page: Page): Promise<string | null> {
   } catch {
     return raw;
   }
+}
+
+/**
+ * Reads the page's <title>, meta description, effective language (<html
+ * lang="...">, falling back to <meta http-equiv="content-language">), and
+ * every other <meta name/property="..." content="..."> tag on the page —
+ * the last of these covers Open Graph, Twitter Card, robots, viewport, and
+ * any other meta tags a site happens to ship, without needing a curated
+ * list of which ones to look for.
+ */
+async function captureMeta(page: Page): Promise<MetaResult> {
+  return page.evaluate(() => {
+    const title = document.title || null;
+    const description =
+      document.querySelector('meta[name="description"]')?.getAttribute("content") ?? null;
+    const language =
+      document.documentElement.getAttribute("lang") ||
+      document.querySelector('meta[http-equiv="content-language"]')?.getAttribute("content") ||
+      null;
+
+    const meta: Record<string, string> = {};
+    document.querySelectorAll("meta[name], meta[property]").forEach((el) => {
+      const key = el.getAttribute("name") ?? el.getAttribute("property");
+      const content = el.getAttribute("content");
+      if (key && content !== null && !(key in meta)) {
+        meta[key] = content;
+      }
+    });
+
+    return { title, description, language, meta };
+  });
 }
 
 const MAX_SNAPSHOT_BYTES = 5_000_000;
@@ -909,6 +1024,156 @@ async function checkLinks(links: DiscoveredLink[], page: Page): Promise<void> {
     }
 
     link.note = `Not a checkable web address (${url.protocol} link)`;
+  }
+}
+
+const VIDEO_ELEMENT_TIMEOUT_MS = 5000;
+
+/**
+ * Finds every video on the page — native <video> elements (in any frame,
+ * including cross-origin iframes, and piercing open shadow roots the way
+ * Playwright locators already do by default) plus iframes pointing at a
+ * known video-embed host — and screenshots each element directly via
+ * Playwright's own element-screenshot API. That's the only way to actually
+ * see what a video *is*: the discovered URL alone tells you nothing for an
+ * embed player (usually streams via a blob: URL with no visible file), and
+ * not much more for a native file URL either. Screenshotting is
+ * best-effort — an element that's zero-size, off-screen, or mid-navigation
+ * simply comes back without one rather than failing the whole scrape.
+ *
+ * When a <video> reports a `blob:` src, `manifestUrlsByFrame` (an .m3u8/.mpd
+ * request log keyed by frame URL, collected by the caller while the page was
+ * loading) is used to substitute a real, checkable URL instead — see the
+ * comment where that map is built for why the blob: URL itself never is
+ * one. This is a same-frame heuristic (take that frame's first manifest
+ * request) rather than a precise per-element match, so a frame hosting more
+ * than one MSE-based video could attribute the wrong manifest to the wrong
+ * element; single-video-per-frame, by far the common case for embed
+ * players, is unaffected.
+ */
+async function discoverVideos(
+  page: Page,
+  manifestUrlsByFrame: Map<string, string[]>,
+): Promise<DiscoveredVideo[]> {
+  const found: DiscoveredVideo[] = [];
+  const seen = new Set<string>();
+
+  const add = (rawUrl: string, baseUrl: string, note: string | undefined, screenshot: string | undefined) => {
+    let absolute: string;
+    try {
+      absolute = new URL(rawUrl, baseUrl).href;
+    } catch {
+      return;
+    }
+    if (seen.has(absolute)) return;
+    seen.add(absolute);
+    found.push({ url: absolute, status: null, note, screenshot });
+  };
+
+  const screenshotElement = async (locator: Locator): Promise<string | undefined> => {
+    try {
+      const buffer = await locator.screenshot({ type: "png", timeout: VIDEO_ELEMENT_TIMEOUT_MS });
+      return `data:image/png;base64,${buffer.toString("base64")}`;
+    } catch {
+      return undefined;
+    }
+  };
+
+  for (const frame of page.frames()) {
+    const videoCount = await frame.locator("video").count().catch(() => 0);
+    for (let i = 0; i < videoCount; i += 1) {
+      const videoEl = frame.locator("video").nth(i);
+      const screenshot = await screenshotElement(videoEl);
+      let srcs: string[];
+      try {
+        srcs = await videoEl.evaluate((el: HTMLVideoElement) => {
+          const list: string[] = [];
+          const own = el.currentSrc || el.getAttribute("src") || "";
+          if (own) list.push(own);
+          el.querySelectorAll("source").forEach((source) => {
+            const src = source.getAttribute("src");
+            if (src) list.push(src);
+          });
+          return list;
+        });
+      } catch {
+        continue;
+      }
+      for (const src of srcs) {
+        if (src.startsWith("blob:")) {
+          const manifestUrls = manifestUrlsByFrame.get(frame.url());
+          if (manifestUrls && manifestUrls.length > 0) {
+            add(
+              manifestUrls[0],
+              frame.url(),
+              "Underlying stream manifest for this video — its <video> element reports a blob: URL because it plays via MediaSource/HLS (e.g. hls.js), so this manifest URL is the actual network resource being fetched, recovered from the page's own requests.",
+              screenshot,
+            );
+            continue;
+          }
+        }
+        add(src, frame.url(), undefined, screenshot);
+      }
+    }
+
+    const iframeCount = await frame.locator("iframe[src]").count().catch(() => 0);
+    for (let i = 0; i < iframeCount; i += 1) {
+      const iframeEl = frame.locator("iframe[src]").nth(i);
+      const src = await iframeEl.getAttribute("src").catch(() => null);
+      if (!src) continue;
+      let absoluteUrl: URL;
+      try {
+        absoluteUrl = new URL(src, frame.url());
+      } catch {
+        continue;
+      }
+      if (!isVideoEmbedHost(absoluteUrl.hostname)) continue;
+      const screenshot = await screenshotElement(iframeEl);
+      add(
+        absoluteUrl.href,
+        frame.url(),
+        "Embedded video player (iframe) — only the embed URL's reachability was checked, not the underlying video file.",
+        screenshot,
+      );
+    }
+  }
+
+  return found;
+}
+
+/**
+ * Status-checks every discovered video URL the same way broken links are
+ * checked — a HEAD/GET request, with anything that still looks broken
+ * re-confirmed via an actual browser navigation (`confirmBrokenViaNavigation`
+ * already exists for exactly that WAF-false-positive reason, so it's reused
+ * as-is here rather than duplicated). `blob:` URLs (adaptive-streaming
+ * players routinely hand `<video>` a `URL.createObjectURL()` reference) only
+ * exist inside that specific browser tab's memory — there's nothing an
+ * external HTTP request could ever check, so those are flagged via `note`
+ * instead of being sent through the network check. `data:` URLs carry the
+ * video inline already, so there's nothing to verify either — left alone.
+ */
+async function checkVideos(videos: DiscoveredVideo[], page: Page): Promise<void> {
+  const checkable = videos.filter((video) => {
+    if (video.url.startsWith("blob:")) {
+      video.note =
+        "Not checkable — this video streams via a blob: URL that only exists in the live browser tab, not as a fetchable file.";
+      return false;
+    }
+    return !video.url.startsWith("data:");
+  });
+  if (checkable.length === 0) return;
+
+  const uniqueUrls = Array.from(new Set(checkable.map((v) => v.url)));
+  const results = await checkHttpUrls(uniqueUrls, page.context().request);
+  await confirmBrokenViaNavigation(results, page.context());
+
+  for (const video of checkable) {
+    const result = results.get(video.url);
+    if (result) {
+      video.status = result.status;
+      video.error = result.error;
+    }
   }
 }
 
