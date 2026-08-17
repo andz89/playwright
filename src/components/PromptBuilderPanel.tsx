@@ -20,15 +20,47 @@ interface PromptBuilderPanelProps {
   availableFeatures?: Record<string, boolean>;
 }
 
+// Persisted in sessionStorage (not just component state) so a generated
+// prompt survives a dev Fast Refresh or any other remount of this
+// component while the tab is open, not just re-renders.
+const STORAGE_KEY = "promptBuilder:v1";
+
+interface PersistedPromptState {
+  selection: PromptSelection;
+  prompt: string;
+}
+
+function loadPersisted(): PersistedPromptState | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as PersistedPromptState) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function PromptBuilderPanel({
   availableFeatures,
 }: PromptBuilderPanelProps) {
   const [open, setOpen] = useState(false);
-  const [selection, setSelection] = useState<PromptSelection>(() =>
-    defaultPromptSelection(),
+  const [selection, setSelection] = useState<PromptSelection>(
+    () => loadPersisted()?.selection ?? defaultPromptSelection(),
   );
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useState(() => loadPersisted()?.prompt ?? "");
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ selection, prompt } satisfies PersistedPromptState),
+      );
+    } catch {
+      // sessionStorage can be unavailable (private browsing, quota) — the
+      // prompt still works for the current component lifetime either way.
+    }
+  }, [selection, prompt]);
 
   useEffect(() => {
     if (!open) return;

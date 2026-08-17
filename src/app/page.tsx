@@ -8,7 +8,6 @@ import { RedirectNotice } from "@/components/RedirectNotice";
 import { CanonicalLink } from "@/components/CanonicalLink";
 import { MetaPanel } from "@/components/MetaPanel";
 import { ScreenshotsPanel } from "@/components/ScreenshotsPanel";
-import { PageSnapshotPanel } from "@/components/PageSnapshotPanel";
 import { Gallery } from "@/components/Gallery";
 import { ResultsTable } from "@/components/ResultsTable";
 import { LinksTable } from "@/components/LinksTable";
@@ -26,7 +25,6 @@ import {
 type ViewMode = "gallery" | "table";
 type SectionKey =
   | "screenshots"
-  | "snapshot"
   | "featured"
   | "page"
   | "links"
@@ -52,7 +50,6 @@ export default function Home() {
     Record<SectionKey, boolean>
   >({
     screenshots: true,
-    snapshot: true,
     featured: true,
     page: true,
     links: true,
@@ -90,7 +87,6 @@ export default function Home() {
   const visibleSectionKeys = (
     [
       "screenshots",
-      "snapshot",
       "featured",
       "page",
       "links",
@@ -99,7 +95,6 @@ export default function Home() {
     ] as SectionKey[]
   ).filter((key) => {
     if (key === "screenshots") return state.screenshots != null;
-    if (key === "snapshot") return state.pageSnapshot != null;
     if (key === "featured") return featuredImages.length > 0;
     if (key === "page") return pageImages.length > 0;
     if (key === "videos") return state.videos.length > 0;
@@ -116,7 +111,6 @@ export default function Home() {
       "page-images": pageImages.length > 0,
       screenshots: state.screenshots != null,
       widgets: state.hyvorTalk != null,
-      "page-snapshot": state.pageSnapshot != null,
     }),
     [
       state.links,
@@ -127,7 +121,6 @@ export default function Home() {
       pageImages,
       state.screenshots,
       state.hyvorTalk,
-      state.pageSnapshot,
     ],
   );
 
@@ -258,16 +251,6 @@ export default function Home() {
             </CollapsibleSection>
           )}
 
-          {state.pageSnapshot && (
-            <CollapsibleSection
-              id="page-snapshot"
-              title="Page snapshot"
-              collapsed={collapsedSections.snapshot}
-              onToggle={() => toggleSection("snapshot")}
-            >
-              <PageSnapshotPanel result={state.pageSnapshot} />
-            </CollapsibleSection>
-          )}
           {state.images.length > 0 && (
             <>
               {featuredImages.length > 0 && (

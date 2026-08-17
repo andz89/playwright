@@ -16,7 +16,6 @@ const OPTION_LABELS: { key: keyof ScrapeOptions; label: string }[] = [
   { key: "pageMeta", label: "Title, description, language & meta tags" },
   { key: "screenshots", label: "Full-page screenshots" },
   { key: "links", label: "Check page links (broken/working)" },
-  { key: "pageSnapshot", label: "Page snapshot (HTML/CSS preview)" },
   { key: "videos", label: "Check page videos (status)" },
 ];
 

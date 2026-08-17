@@ -78,7 +78,6 @@ export async function POST(req: NextRequest) {
           redirect,
           canonicalUrl,
           screenshots,
-          pageSnapshot,
           meta,
         } = await scrapePage(targetUrl, options);
 
@@ -96,9 +95,6 @@ export async function POST(req: NextRequest) {
         }
         if (options.screenshots && screenshots) {
           send({ type: "screenshots", result: screenshots });
-        }
-        if (options.pageSnapshot && pageSnapshot) {
-          send({ type: "pageSnapshot", result: pageSnapshot });
         }
 
         let failedImages = 0;

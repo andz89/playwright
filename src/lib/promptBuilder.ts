@@ -249,37 +249,6 @@ export const PROMPT_FEATURES: PromptFeature[] = [
       }),
     ],
   },
-  {
-    id: "page-snapshot",
-    sectionId: "page-snapshot",
-    title: "Page Snapshot",
-    noteStyle: "shared-single",
-    hasSectionNote: false,
-    checks: [
-      {
-        key: "missingSections",
-        label: "Missing/blank sections flagged above the snapshot",
-        text: "Cross-check the missing-elements notice shown above the snapshot (Shadow DOM sections that can't be captured) and note their visual impact.",
-        defaultChecked: true,
-      },
-      {
-        key: "failedAssets",
-        label: "Failed image/video/stylesheet/font warnings",
-        text: "Cross-check the failed-resource warnings shown above the snapshot (broken image/video/stylesheet/font) and note their visual impact.",
-        defaultChecked: true,
-      },
-      ...standardTextChecks({
-        image: {
-          text: "Use the Desktop / Tablet / Mobile buttons above the snapshot to switch between all three views, and inspect any images/graphics visible in each for embedded English text.",
-          defaultChecked: true,
-        },
-        content: {
-          text: "Use the Desktop / Tablet / Mobile buttons above the snapshot to switch between all three views, and confirm all visible text content (not embedded in images/graphics — that's the separate check above) in each view is strictly in {lang}; quote and flag any English text or mixed-language strings, noting which viewport it appeared in.",
-          defaultChecked: true,
-        },
-      }),
-    ],
-  },
 ];
 
 export interface FeatureSelection {

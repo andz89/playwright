@@ -14,7 +14,6 @@ import {
   type ImageResult,
   type LinkResult,
   type MetaResult,
-  type PageSnapshotResult,
   type RedirectInfo,
   type ScrapeEvent,
   type ScrapeOptions,
@@ -32,7 +31,6 @@ export interface ScrapeState {
   canonical: CanonicalResult | null;
   meta: MetaResult | null;
   screenshots: ScreenshotSet | null;
-  pageSnapshot: PageSnapshotResult | null;
   images: ImageResult[];
   links: LinkResult[];
   videos: VideoResult[];
@@ -50,7 +48,6 @@ const initialState: ScrapeState = {
   canonical: null,
   meta: null,
   screenshots: null,
-  pageSnapshot: null,
   images: [],
   links: [],
   videos: [],
@@ -182,9 +179,6 @@ function applyEvent(
       break;
     case "screenshots":
       setState((s) => ({ ...s, screenshots: event.result }));
-      break;
-    case "pageSnapshot":
-      setState((s) => ({ ...s, pageSnapshot: event.result }));
       break;
     case "found":
       setState((s) => ({ ...s, progress: { current: 0, total: event.total } }));

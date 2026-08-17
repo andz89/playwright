@@ -10,16 +10,13 @@ import {
 import { SCRAPER_USER_AGENT } from "./robots";
 import {
   FEATURED_TAGS,
-  type FailedSnapshotResource,
   type FeaturedTag,
   type HyvorTalkResult,
   type MetaResult,
-  type PageSnapshotResult,
   type RedirectInfo,
   type ScreenshotDevice,
   type ScreenshotSet,
   type ScrapeOptions,
-  type SnapshotResourceType,
 } from "./types";
 
 export const MAX_IMAGES = 50;
@@ -106,8 +103,6 @@ export interface ScrapePageResult {
   canonicalUrl: string | null;
   /** Full-page screenshots at desktop/tablet/mobile sizes, or null if not requested. */
   screenshots: ScreenshotSet | null;
-  /** Sanitized HTML snapshot of the rendered page, or null if not requested. */
-  pageSnapshot: PageSnapshotResult | null;
   /** Title, description, language, and other meta tags, or null if not requested. */
   meta: MetaResult | null;
 }
@@ -279,45 +274,6 @@ export async function scrapePage(
       if (frame === page.mainFrame()) laterNavigations.push(frame.url());
     });
 
-    // The snapshot's <base>-tag trick means the browser re-fetches every
-    // stylesheet/image/font itself when the snapshot is later displayed —
-    // it can't detect at that point which of those actually failed here
-    // during the real load (a 404, a WAF block, a CORS-gated font). Tracking
-    // it now, while we still have the real page and network, is the only
-    // chance to tell the viewer the snapshot may not be pixel-accurate for
-    // specific assets. These are only *candidates*: a single failed request
-    // is frequently a transient blip (CDN rate-limit, slow first TLS
-    // handshake) rather than a genuinely broken resource — same reasoning as
-    // the retries used for image/link verification below — so each one is
-    // re-confirmed with a direct request before being reported.
-    const failedResourceCandidates: FailedSnapshotResource[] = [];
-    const seenFailedUrls = new Set<string>();
-    // Playwright's "media" resourceType covers <video>/<audio> sources —
-    // reported to the user as "video" since that's what a 404'd source
-    // actually means visually (no playable clip in the snapshot).
-    const resourceTypeLabel: Partial<Record<string, SnapshotResourceType>> = {
-      stylesheet: "stylesheet",
-      image: "image",
-      font: "font",
-      media: "video",
-    };
-    const recordFailureCandidate = (request: Request, status?: number) => {
-      const type = resourceTypeLabel[request.resourceType()];
-      if (!type) return;
-      const url = request.url();
-      if (seenFailedUrls.has(url)) return;
-      seenFailedUrls.add(url);
-      failedResourceCandidates.push({ url, type, status });
-    };
-    const onRequestFailed = (request: Request) => recordFailureCandidate(request);
-    const onResponse = (res: Response) => {
-      if (res.status() >= 400) recordFailureCandidate(res.request(), res.status());
-    };
-    if (options.pageSnapshot) {
-      page.on("requestfailed", onRequestFailed);
-      page.on("response", onResponse);
-    }
-
     // Modern players (hls.js/dash.js — used by YouTube, Vimeo, Bunny.net,
     // and most other streaming platforms) feed a <video> element through
     // MediaSource Extensions rather than setting its src to the real file,
@@ -354,17 +310,8 @@ export async function scrapePage(
     // sections) only renders once an IntersectionObserver or scroll handler
     // sees it enter the viewport. Scrolling through the page once before
     // extracting anything gives that content a chance to mount first.
-    if (options.pageImages || options.links || options.pageSnapshot || options.videos) {
+    if (options.pageImages || options.links || options.videos) {
       await triggerLazyContent(page);
-    }
-    // Stop listening once the real page load is done — later steps
-    // (synthetic image-load checks, link-navigation confirmations, resizing
-    // for screenshots) make their own requests that aren't part of what a
-    // normal visitor's browser would fetch for this page, so they shouldn't
-    // feed into the snapshot's failure list.
-    if (options.pageSnapshot) {
-      page.off("requestfailed", onRequestFailed);
-      page.off("response", onResponse);
     }
 
     const { images: rawImages, links: rawLinks } = await page.evaluate(
@@ -505,14 +452,6 @@ export async function scrapePage(
       : { found: false };
     const canonicalUrl = options.canonicalUrl ? await captureCanonicalUrl(page) : null;
     const meta = options.pageMeta ? await captureMeta(page) : null;
-    // Captured before screenshots resize the viewport — the DOM/HTML itself
-    // doesn't depend on viewport size, so there's no reason to wait.
-    const pageSnapshot = options.pageSnapshot
-      ? await capturePageSnapshot(
-          page,
-          await confirmFailedResources(context.request, failedResourceCandidates),
-        )
-      : null;
     // Resizes the viewport repeatedly, so it must run after every step above
     // that depends on the page's original layout/viewport.
     const screenshots = options.screenshots ? await captureScreenshots(page) : null;
@@ -528,7 +467,6 @@ export async function scrapePage(
       redirect,
       canonicalUrl,
       screenshots,
-      pageSnapshot,
       meta,
     };
   } finally {
@@ -642,173 +580,6 @@ async function captureMeta(page: Page): Promise<MetaResult> {
 
     return { title, description, language, meta };
   });
-}
-
-const MAX_SNAPSHOT_BYTES = 5_000_000;
-const MAX_FAILED_RESOURCES_SHOWN = 25;
-const MAX_MISSING_ELEMENTS_SHOWN = 25;
-
-/**
- * Finds every element (arbitrarily nested) with an open shadow root — a
- * plain `outerHTML` serialization never includes what's inside a shadow
- * root, so any section of the page built as a web component silently comes
- * out empty in the snapshot even though nothing failed to fetch. Returns a
- * short human-readable identifier (tag#id.class) per element so the viewer
- * can tell which sections of the page are affected.
- */
-async function findShadowHostDescriptors(page: Page): Promise<string[]> {
-  return page.evaluate(() => {
-    const descriptors: string[] = [];
-    function describe(el: Element): string {
-      const tag = el.tagName.toLowerCase();
-      const id = el.id ? `#${el.id}` : "";
-      const classes =
-        typeof el.className === "string" && el.className.trim()
-          ? `.${el.className.trim().split(/\s+/).join(".")}`
-          : "";
-      return `${tag}${id}${classes}`;
-    }
-    function walk(root: ParentNode) {
-      root.querySelectorAll("*").forEach((el) => {
-        if (el.shadowRoot) {
-          descriptors.push(describe(el));
-          walk(el.shadowRoot);
-        }
-      });
-    }
-    walk(document);
-    return descriptors;
-  });
-}
-
-/**
- * Captures the page's live-rendered HTML so it can be displayed elsewhere
- * looking like the original — a `<base>` tag is injected pointing at the
- * page's own URL so every relative stylesheet/image/font reference in the
- * markup keeps resolving against the real site once rendered somewhere
- * else, without needing to fetch and inline each asset ourselves. `<script>`
- * tags are stripped so the snapshot can never execute code, regardless of
- * how it's later embedded — a raw copy of an untrusted third-party page is
- * not safe to render as live, scriptable HTML. Truncated at
- * `MAX_SNAPSHOT_BYTES` since some pages serialize to tens of megabytes.
- * `failedResources` (collected by the caller from the real page load) is
- * passed through so the viewer can be told which assets may render
- * differently than the live page.
- */
-async function capturePageSnapshot(
-  page: Page,
-  failedResources: FailedSnapshotResource[],
-): Promise<PageSnapshotResult> {
-  try {
-    const rawHtml = await page.evaluate(() => document.documentElement.outerHTML);
-    const withoutScripts = rawHtml.replace(/<script[\s\S]*?<\/script\s*>/gi, "");
-    const withBase = injectBaseHref(withoutScripts, page.url());
-    const shadowHosts = await findShadowHostDescriptors(page).catch(() => []);
-
-    const resourceFields =
-      failedResources.length > 0
-        ? {
-            failedResources: failedResources.slice(0, MAX_FAILED_RESOURCES_SHOWN),
-            failedResourceCount: failedResources.length,
-          }
-        : {};
-    const missingElementFields =
-      shadowHosts.length > 0
-        ? {
-            missingElements: shadowHosts.slice(0, MAX_MISSING_ELEMENTS_SHOWN),
-            missingElementCount: shadowHosts.length,
-          }
-        : {};
-
-    if (Buffer.byteLength(withBase, "utf-8") > MAX_SNAPSHOT_BYTES) {
-      return {
-        html: withBase.slice(0, MAX_SNAPSHOT_BYTES),
-        error: "Snapshot was truncated because the page is unusually large.",
-        ...resourceFields,
-        ...missingElementFields,
-      };
-    }
-    return { html: withBase, ...resourceFields, ...missingElementFields };
-  } catch (err) {
-    return {
-      html: null,
-      error: `Failed to capture page snapshot: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    };
-  }
-}
-
-function injectBaseHref(html: string, baseUrl: string): string {
-  const baseTag = `<base href="${baseUrl.replace(/"/g, "&quot;")}">`;
-  if (/<head[^>]*>/i.test(html)) {
-    return html.replace(/<head[^>]*>/i, (match) => `${match}${baseTag}`);
-  }
-  if (/<html[^>]*>/i.test(html)) {
-    return html.replace(/<html[^>]*>/i, (match) => `${match}<head>${baseTag}</head>`);
-  }
-  return `${baseTag}${html}`;
-}
-
-const CONFIRM_RESOURCE_ATTEMPTS = 2;
-const CONFIRM_RESOURCE_CONCURRENCY = 6;
-
-/**
- * Re-checks each resource that looked like it failed during the real page
- * load, with a couple of direct retries, before trusting it enough to show
- * the user — a single failed request is frequently a transient blip (CDN
- * rate-limit, a slow first TLS handshake) rather than a genuinely broken
- * resource, the same reasoning `confirmBrokenViaNavigation` and
- * `verifyInBrowser` already apply to links and images elsewhere in this
- * file. Without this, the snapshot's failure list would flap between scrapes
- * of the same page for reasons that have nothing to do with the page itself.
- */
-async function confirmFailedResources(
-  request: APIRequestContext,
-  candidates: FailedSnapshotResource[],
-): Promise<FailedSnapshotResource[]> {
-  if (candidates.length === 0) return [];
-
-  const confirmed: FailedSnapshotResource[] = [];
-  let cursor = 0;
-  async function worker() {
-    while (cursor < candidates.length) {
-      const candidate = candidates[cursor];
-      cursor += 1;
-      const outcome = await stillFailing(request, candidate.url);
-      if (outcome.failed) {
-        confirmed.push({ ...candidate, status: outcome.status ?? candidate.status });
-      }
-    }
-  }
-  await Promise.all(
-    Array.from({ length: Math.min(CONFIRM_RESOURCE_CONCURRENCY, candidates.length) }, worker),
-  );
-  return confirmed;
-}
-
-async function stillFailing(
-  request: APIRequestContext,
-  url: string,
-): Promise<{ failed: boolean; status?: number }> {
-  let lastStatus: number | undefined;
-  for (let attempt = 1; attempt <= CONFIRM_RESOURCE_ATTEMPTS; attempt += 1) {
-    try {
-      const res = await request.fetch(url, {
-        method: "GET",
-        timeout: 10000,
-        failOnStatusCode: false,
-      });
-      if (res.ok()) return { failed: false };
-      lastStatus = res.status();
-    } catch {
-      // Network-level failure; fall through to retry/backoff below.
-    }
-    if (attempt < CONFIRM_RESOURCE_ATTEMPTS) {
-      await new Promise((r) => setTimeout(r, 500));
-    }
-  }
-  return { failed: true, status: lastStatus };
 }
 
 /**
