@@ -219,12 +219,18 @@ export const PROMPT_FEATURES: PromptFeature[] = [
         text: "Report the status of full-page screenshot generation for that viewport.",
         defaultChecked: true,
       },
-      ...standardTextChecks({
-        image: {
-          text: "Language check — confirm all rendered text in the screenshot is strictly in {lang}; quote and flag any English text, mixed-language strings, placeholder/lorem-ipsum text, or rendering issues, noting where in the screenshot they appeared.",
-          defaultChecked: true,
-        },
-      }),
+      {
+        key: "textEnglish",
+        label: "EN text anywhere in the screenshot",
+        text: 'Text check — read every piece of visible text rendered in the screenshot (headings, body copy, buttons, form labels, navigation, footer, captions). Every one of those strings must be in {lang}. Explicitly check for the presence of any English-language word or phrase; if you find one, quote it exactly and note where in the screenshot it appeared. Also flag mixed-language strings, placeholder/lorem-ipsum text, or obvious rendering issues the same way.',
+        defaultChecked: true,
+      },
+      {
+        key: "imageEnglish",
+        label: 'EN text on graphics/images (uses "graphic are in target language" wording when clean)',
+        text: 'Graphics check — separately from the text check above, inspect every image, banner, icon, or other graphic embedded in the screenshot for text baked into the graphic itself. Explicitly check for the presence of any English-language text on a graphic. If you find English text on a graphic, quote it exactly and note which graphic and where in the screenshot it appeared. If, after checking, no graphic contains English text and every graphic\'s text is in {lang} (or no graphic contains any text at all), write exactly this phrase for that finding instead of the generic "CORRECT" wording: graphic are in target language "{lang}" (substitute the actual language code, e.g. graphic are in target language "PL").',
+        defaultChecked: true,
+      },
     ],
   },
   {
@@ -358,6 +364,13 @@ export function buildPrompt(selection: PromptSelection): string {
       `Locate this section in the current tab via the element with id="${feature.sectionId}".`,
     );
     lines.push("");
+
+    if (feature.id === "screenshots") {
+      lines.push(
+        'VIEW MODE REQUIRED — before performing any check below, click the "Stacked" layout toggle button inside this section (it sits next to the "Tabs" button; do not leave it on "Tabs"). In "Tabs" mode only the currently active device\'s screenshot exists in the DOM, so the other two are invisible to you. "Stacked" mode renders all three viewport screenshots (Desktop, Tablet, Mobile) in the DOM at the same time, which is required so you can check every viewport.',
+      );
+      lines.push("");
+    }
 
     if (selectedChecks.length > 0) {
       for (const check of selectedChecks) {
